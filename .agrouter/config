@@ -9,8 +9,11 @@ complexity_policy = Judge the codebase as a whole: its size, architecture, depen
 
 log_dir         = .agrouter/logs
 
+# typesafe or openai; selects the [classifier.<provider>] section below.
+classifier_provider = typesafe
+
 # routing classifier and request size; long context is opt-in.
-[classifier]
+[classifier.typesafe]
 url     = https://api.typesafe.ai/v1/systemone
 model   = jev-latest
 
