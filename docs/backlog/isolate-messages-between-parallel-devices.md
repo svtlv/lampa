@@ -63,7 +63,7 @@ claimed by adding this item.
 
 ## Investigation findings — November 6, 2026
 
-**Status: investigated; the owner's exact event is not yet reproduced.** Message type, triggering action, client versions and same/different account arrangement remain unknown. No cross-user breach is established. No fix, deployment or configuration change was made.
+**Status: the owner identified the text as "Not saved to Account", locating it in the first-party account-sync add-on. The actual device failure is not yet reproduced.** The failed operation/status, client versions and same/different account arrangement remain unknown. No cross-user breach is established. No fix, deployment or configuration change was made.
 
 ### Evidence
 - Compared deployed revision `be26ded19991468b312d87b9593d84cb8c88f0ba` with current `43693da786a1333e5550a3e790332c920668717d`: the audited bundle, account-sync, account UI and storage policy are byte-identical. The actual bundle URL/cache and remote plugins loaded by each device remain unverified. Anchors below apply to both revisions.
@@ -84,3 +84,41 @@ A small deterministic Node VM harness executed verbatim source slices with mocke
 3. At the verified routing seam, authorize target delivery server-side and validate available recipient/session metadata before client UI dispatch. If upstream strips recipient metadata, address the protocol rather than inventing a client UID comparison. A client-supplied device ID is not authorization.
 4. Fence queued actions and callbacks by account/profile/connection generation, discard stale work after identity changes, and issue a fresh correlation ID per invocation. Test old-socket events, reconnect/duplicate subscriptions, offline queues, logout/account switches and delayed/duplicate replies.
 5. Verify same-account clients, different accounts and guests in both directions; retain account/global notices and explicit remote sharing. Preserve local players/device identities/active endpoint selectors, intended shared settings/favorites and the separate removal of shared TorrServer timecodes. Finish with the owner's real browser/TV combination before claiming the reported bug fixed.
+
+### Owner clarification and narrowed investigation — November 6, 2026
+
+The owner identified the message as **"Not saved to Account"**. This exact English
+text is defined in `svtlv/account-sync.js:47-49` and displayed locally through
+`Lampa.Noty.show` at `:60-68`. It is not, by itself, evidence that a notification
+was delivered from the other device. The earlier socket/CUB and shared-torrent
+findings remain separate hypotheses/adjacent findings, not this toast's proven
+cause.
+
+**Confirmed misleading error classification:** ordinary background document
+polling calls `saveError` on an unsuccessful read or apply exception
+(`:850-881`); `saveError` displays the same "Not saved" string (`:817-831`).
+The message also covers pre-boot refresh deadlines (`:235-240`), account-load
+failures and actual save/encoding/size failures. Therefore it does not prove a
+PUT occurred, that this device changed settings, or that account data was lost.
+The shared request helper has a 15-second default timeout (`:114-129`), while
+pre-boot readiness has a separate 3-second deadline. The actual failed request
+or local operation on the owner's device is still unknown.
+
+**Offline verification actually run:** verbatim notify/saveError/poll source
+slices with a mocked 503 document-read response produced this exact toast on a
+client that never invoked save. Two isolated clients independently produced
+the same toast without any shared notification transport; repeated failure
+retained the existing failure-streak suppression. The characterization exited
+0. This demonstrates the local error path and misleading wording, not that
+production returned 503 or that memory pressure caused this particular event.
+
+**Revised priority:** capture this client's sync phase (boot/read/apply/write),
+request method/status or local error category, and opaque correlation/timing
+without account tokens or private documents. Check whether both clients met a
+shared backend/network failure; resource-pressure timeouts are plausible but
+not established for this message. Distinguish "Could not refresh Account data"
+from a genuinely failed save; preserve local dirty edits, safe retries,
+failure-streak suppression and account-generation guards. Add regressions for
+read failure on an unchanged device, actual PUT failure, apply/storage failure,
+boot deadline and independent clients. Do not fix this by filtering all Noty
+messages or disabling legitimate cross-device account synchronization.
