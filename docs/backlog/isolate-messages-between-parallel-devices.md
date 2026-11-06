@@ -63,7 +63,7 @@ claimed by adding this item.
 
 ## Investigation findings — November 6, 2026
 
-**Status: the owner identified the text as "Not saved to Account", locating it in the first-party account-sync add-on. The actual device failure is not yet reproduced.** The failed operation/status, client versions and same/different account arrangement remain unknown. No cross-user breach is established. No fix, deployment or configuration change was made.
+**Status: the owner identified "Not saved to Account" on the signed-in device, while the other device was anonymous. The message is from the first-party account-sync add-on; the actual device failure is not yet reproduced.** This observation does not establish cross-device notification delivery. The failed operation/status and client versions remain unknown. No cross-user breach is established. No fix, deployment or configuration change was made.
 
 ### Evidence
 - Compared deployed revision `be26ded19991468b312d87b9593d84cb8c88f0ba` with current `43693da786a1333e5550a3e790332c920668717d`: the audited bundle, account-sync, account UI and storage policy are byte-identical. The actual bundle URL/cache and remote plugins loaded by each device remain unverified. Anchors below apply to both revisions.
@@ -122,3 +122,28 @@ failure-streak suppression and account-generation guards. Add regressions for
 read failure on an unchanged device, actual PUT failure, apply/storage failure,
 boot deadline and independent clients. Do not fix this by filtering all Noty
 messages or disabling legitimate cross-device account synchronization.
+
+### Confirmed device arrangement and revised focus — November 6, 2026
+
+The owner clarified that **one device was anonymous, one was signed in, and
+"Not saved to Account" appeared on the signed-in device**. Do not assume both
+clients shared a signed-in account or that the anonymous client generated the
+popup. There is currently no evidence of cross-device notification delivery
+in this reported case; the earlier routing/queue findings are adjacent source
+observations, not established explanations or fixes for this warning.
+
+Prioritize the signed-in client's own account-sync path. The offline test
+already demonstrated that a background document-read failure alone can show
+this text without invoking save; startup/read/apply/write categories still
+need to be distinguished on the actual device. Concurrent guest playback
+could affect the shared server's resources and indirectly disrupt account
+sync, but neither that causal link nor the exact failing request/status has
+been established. Preserve independent guest playback and signed-in account
+sync; do not add socket filtering, disable account sharing or change device
+identifiers as a claimed fix without new evidence.
+
+Next verification should correlate the signed-in client's operation phase,
+request result and timing with backend health/resource evidence, without
+collecting account tokens or private documents. Keep the precise production
+failure and any playback-pressure attribution open. No application fix or
+live configuration change was applied.
