@@ -112,3 +112,66 @@ approved bounded test window for disruptive experiments.
 **Application is disruptive:** official UI/API settings save uses a complete settings object, persists it, drops **all torrents**, disconnects/reconnects the BT client, and restarts relevant helpers (`server/web/api/settings.go:45-60`; `server/torr/apihelper.go:238-252`). It does not require a container restart. Never submit these candidate fields as a sparse replacement, and never save during playback. Direct file edits are not established as hot-reloaded. Cache API unit is bytes; UI's MB label uses binary MiB (`web/src/components/Settings/SettingsDialog.jsx:56-70`).
 
 **Remaining acceptance:** no measured one-device/two-device A/B was available, and the tiny offline scalar model is not a playback benchmark. During a future approved window compare one device, two distinct torrents, then two same-hash readers with identical media/seek patterns; collect anonymous active counts/readers, CPU, RSS/cgroup memory, PSI, swap/reclaim, startup, rebuffer and seek recovery. Do not use deadline-refreshing status/cache calls to validate idle expiration. Stop on pressure/regression; rollback the preserved full settings during an idle window. Attribute the initiating process and verify disconnect/reader cleanup and cross-device drop/reload before closing this item.
+
+## Critical recurrence: confirmed global OOM — November 7, 2026
+
+**New evidence materially escalates this existing item:** at **19:11:06 UTC**,
+the kernel recorded a host-wide (`global_oom`, unconstrained) out-of-memory
+kill of TorrServer, whose anonymous resident memory was approximately
+**7.3 GiB**. Swap was exhausted. This is confirmed historical OOM victim
+attribution, stronger than the November 6 pressure-only observations. It does
+**not** establish a memory leak, the initiating allocation/request, or that
+parallel playback alone caused the event.
+
+TorrServer restarted at **19:11:11 UTC** under its existing restart policy;
+no investigator restart or repair was performed. Incident diagnostics found
+no explicit container memory limit. Current post-restart `OOMKilled=false` or
+zero counters in its new cgroup generation do not erase the historical kernel
+kill. The cumulative restart counter is not the number of kills in this one
+episode.
+
+Monitoring also observed Distributor and Immich ML deadlines during the
+pressure episode. Shared resource contention is a plausible contributor;
+independent database/Kafka outages, missed application work and data loss were
+not established. By approximately 19:18 UTC independent health observations
+had recovered and the collector closed incident-176. Endpoint recovery is not
+a demonstration of uninterrupted playback or recurrence prevention.
+
+After restarting, TorrServer again showed substantial multi-GiB memory
+excursions, including subsequent decreases; do not call the growth monotonic
+or a proven leak. A fresh **read-only settings query at 20:23 UTC** still
+returned CacheSize=2147483648 bytes, PreloadCache=1, ReaderReadAHead=95,
+ConnectionsLimit=25, UseDisk=false, ResponsiveMode=true and
+TorrentDisconnectTimeout=30. Thus the earlier 512 MiB/4% candidate has **not**
+been applied or validated. Same-image/source cache-scope and lifecycle findings
+above remain relevant; the precise active torrents/readers at the kill are
+unknown and must not be reconstructed from later saved-entry counts.
+
+### Required priority work and acceptance
+
+- Treat prevention as a critical availability/host-headroom requirement, not
+  merely a noisy health-check or CPU-only optimization. Preserve anonymous
+  kernel/cgroup-generation evidence in private incident records; do not publish
+  raw logs, media identifiers, credentials or infrastructure access details.
+- Attribute the working set across cache payloads, allocated-vs-accounted
+  pieces, readers/in-flight writes, Go heap/GC and other services. Correlate
+  resource pressure with actual concurrent playback and cancellation, rather
+  than equating the OOM victim with proof of a particular application defect.
+- Validate the memory-first candidate and aggregate concurrent-torrent budget
+  in an approved bounded playback window. Measure peak/sustained memory,
+  host headroom, swap/reclaim/PSI, CPU, startup/seek latency and buffering for
+  one viewer, two distinct torrents and two same-hash viewers. Nominal cache
+  capacity is not a hard RSS cap; account for lazy allocations and overhead.
+- Assess reader/session-aware cancellation, post-playback cleanup and any
+  aggregate memory/admission/backpressure controls needed. Evaluate a container
+  memory boundary only with a measured cache/overhead budget and interruption
+  trade-offs; moving failure into a cgroup OOM is not a complete playback fix.
+- Acceptance must demonstrate no OOM or severe reclaim collapse in the tested
+  sustained parallel workload, bounded cleanup after viewers stop, sufficient
+  neighboring-service headroom and no cross-viewer interruption. Record test
+  coverage and rollback; do not close the item solely because `/echo` or
+  dependent health checks recover.
+
+No production settings, resource limits, service restarts or deployments were
+performed while adding this evidence. Supported settings save remains
+interrupting for all torrents and requires its own planned/authorized window.
