@@ -1,740 +1,644 @@
-# Migrate TorrServer and Jackett and support parallel playback
+# Implement parallel-playback fixes and TorrServer/Jackett Compose configuration
 
-## Overview
+## Objective and completion contract
 
-Bring the existing TorrServer and Jackett deployments under this repository's
-`devops/docker-compose.yaml`, preserving configuration, credentials, endpoint
-addresses and application versions. Migrate first, verify the transfer, then tune
-and measure performance separately. Apply all three current backlog items.
+Deliver the repository changes for all three backlog items, add the existing
+TorrServer and Jackett services to this repository's Compose stack, and prepare
+resource-measurement tooling and tuning documentation.
 
-The required capacity target is **three simultaneous 1080p streams**, including
-three distinct torrents. Also verify single-viewer 4K playback. Keep 4K available
-by user choice: no resolution filter, admission rule based on resolution, forced
-downgrade or blanket bitrate cap. Three simultaneous 4K streams are an optional
-capacity experiment, not a release requirement or a promised capability.
+**This plan is self-contained and completes before release or deployment.** Every
+implementation task can be completed using this checkout, the findings recorded
+below and local automated checks. No task requires the owner to answer a question,
+provide production credentials, release, deploy, stop a container, change a live
+setting, run playback or collect measurements. No additional Hermes investigation
+or access to private server documentation is an implementation prerequisite.
 
-This is an implementation plan, not authorization to perform a production
-cutover or disruptive playback experiment during planning.
+The deliverable is code, configuration, tests and documentation ready for the
+owner to deploy. All owner-operated actions appear exclusively in the final
+**Post-implementation handover** section. That section is not an implementation
+phase or a dependency of implementation completion.
 
-## Decisions and evidence
+## Fixed scope and decisions
 
-- Owner selected: preserve existing URLs, ports, credentials and versions; migrate
-  first, tune separately. Do not bundle an application upgrade into the move.
-- Owner selected: three 1080p viewers as the capacity target; preserve the choice
-  to watch 4K, including when only one viewer is present.
-- Initial inspection was on `svtlvtv` at `2162282`; concurrent upstream integration
-  advanced the checkout to `efbff45` during planning. The account-error and
-  hash-wide cancellation paths were rechecked and still exist; bundle line
-  numbers/private identifiers have moved. Concurrent storage-policy/test edits
-  were left intact. Reconcile their final state before implementation. This is a
-  distribution checkout: frontend changes use ES5 and direct bundle edits only
-  for built-in behavior. Add-on changes stay in `svtlv/` and use public Lampa APIs.
-- Historical production findings in the backlog identify TorrServer MatriX.143
-  with a 2 GiB **per distinct torrent** RAM cache. On November 7 the kernel
-  recorded a global OOM kill of TorrServer at approximately 7.3 GiB anonymous
-  resident memory with swap exhausted. This proves an OOM victim, not a leak or
-  a particular initiating playback request.
-- Current code confirms that failed background account reads use the save-error
-  toast, and that torrent file-dialog cancellation/discovery timeout send
-  hash-wide `Torserver.drop` requests. Neither proves the cause of the owner's
-  actual device warning or a real cross-viewer interruption.
-- Production inventory requested through the configured Hermes `svtlv` peer,
-  using a fresh API run after its existing Bot Chat rejected admission.
-  Initial run: `run_28951de6be9d44d4b1fb143782770fd8`. Its completed response
-  confirms the 512 MiB/4% candidate is unapplied and releases use stack-wide
-  `docker-compose down`; it reports no production modifications. Detailed
-  inventory returned in follow-up `run_68fd1ea54c3147909c00eef0b6ecee41`, based on
-  read-only observations **November 8, 09:49–09:55:51 UTC**. Its relevant facts
-  and remaining unknowns are recorded below. No settings saves, restarts,
-  deployment, stream probes or load tests were performed.
+- Use the latest stable TorrServer and Jackett container releases for the move,
+  preserving ports, credentials and existing data. Use release tags plus verified
+  digests, not the old deployed images or prerelease/nightly/master builds. Add
+  definitions using the same three binds; do not copy, relocate or regenerate data.
+- Keep the normal full-stack pull/down/up deployment lifecycle. Once managed by
+  this stack, TorrServer and Jackett redeploy on every deployment, even when their
+  configuration is unchanged. Deployments may interrupt playback.
+- Keep initial takeover of the old Compose project manual. Implement no old-project
+  shutdown, takeover, data migration, rollback or `/opt` cleanup automation.
+- Preserve both TorrServer URLs, their shared credentials, local active-link
+  selection, account isolation and the existing removal of shared server timecodes.
+- Implement account-error classification, cross-link torrent membership and safe
+  built-in playback cancellation using the established findings below.
+- Prepare the bounded measurement collector and supported tuning candidates now.
+  Preserve existing live settings in the initial service definitions. Actual
+  measurements, candidate application and promotion are post-implementation work.
+- Target three simultaneous 1080p streams and single-viewer 4K in later acceptance.
+  Keep 4K selectable with no resolution restriction or forced downgrade. Three
+  simultaneous 4K streams are optional, not a promised capability.
+- At implementation completion, delete resolved backlog files. Keep genuinely
+  unresolved incident/capacity follow-up visible without making it a dependency
+  of finishing or archiving this plan.
 
-## Production inventory from Hermes
+| Backlog file | Repository work in this plan |
+| --- | --- |
+| `docs/backlog/isolate-messages-between-parallel-devices.md` | Task 6: accurate account errors, bounded diagnostics and independent-client regressions |
+| `docs/backlog/share-torrents-between-torrserver-links.md` | Task 7: cross-link membership union and safe removal with account/guest/race coverage |
+| `docs/backlog/parallel-playback-resource-peaks-and-configuration.md` | Tasks 2–5 and 8–10: service definitions, safe cancellation/cleanup, collector and documented tuning candidates |
 
-### Deployment ownership and versions
+## Findings available to the implementer
 
-| Contract | Current state to preserve |
+These facts are sufficient implementation inputs. Production observations were
+obtained read-only through the configured Hermes peer on November 8, 2026,
+09:49–09:55:51 UTC. They are a dated snapshot, not proof of later deployment or
+playback capacity. Reconcile bundle names and local edits against the checkout;
+Rollup suffixes and line numbers are not stable APIs.
+
+### Existing deployment contract
+
+| Item | Recorded value |
 | --- | --- |
 | Old Compose project | `torrserver` |
-| Authoritative old live definition | `/opt/svtlvtv/torrserver/docker-compose.yml` |
-| Old working directory | `/opt/svtlvtv/torrserver` |
-| Source repository / installer / redeployer for that file | **Unknown; must identify before transferring ownership** |
-| Service and container names | `torrserver`, `jackett` |
-| Destination project / live file | `svtlvtv`; `/home/deploy/svtlvtv/docker-compose.yaml` |
-| Destination source | This repo's `devops/docker-compose.yaml` |
-| TorrServer version / architecture | MatriX.143, `linux/amd64` |
-| Jackett image / app / runtime | `v0.24.2475-ls9` / `v0.24.2475` / `9.0.19`, `linux/amd64` |
+| Old live definition | `/opt/svtlvtv/torrserver/docker-compose.yml` |
+| Old service/container names | `torrserver`, `jackett` |
+| Destination project | `svtlvtv` |
+| Destination live definition | `/home/deploy/svtlvtv/docker-compose.yaml` |
+| Repository definition | `devops/docker-compose.yaml` |
+| TorrServer | MatriX.143, `linux/amd64` |
+| Jackett | Image `v0.24.2475-ls9`, application `v0.24.2475`, runtime `9.0.19`, `linux/amd64` |
+| Restart policy | `unless-stopped` for both |
+| Published ports | TorrServer `8090/tcp`, Jackett `9117/tcp`, existing IPv4/IPv6 host interfaces; no published UDP |
+| Existing networks | `torrserver_default` and `svtlv_monitoring_external` |
+| Destination networks | Destination default network plus existing `svtlv_monitoring_external`, preserving service aliases |
 
-Use these installed image references as migration inputs, subject to pre-cutover
-digest/architecture reconciliation:
+These are the historical installed images, retained as rollback references only;
+they are not the target images for the new service definitions:
 
 ```text
 ghcr.io/yourok/torrserver@sha256:9a6b95f5744af2fcff55c505891c737f22dd6e1d3d53269fc2268ef3382507d9
 lscr.io/linuxserver/jackett@sha256:341ace61a953dd404892abd319ac6c871e39189c8e0a9cf618d03666a7620fa1
 ```
 
-Both current image references are mutable/untagged. Jackett actually runs
-`/app/Jackett/jackett --NoUpdates`; `AUTO_UPDATE` is absent and no application
-writable-layer changes were observed. Preserve effective update behavior even
-though persisted `UpdateDisabled=false`. TorrServer runs as root with
-`--path /opt/ts/config --logpath /opt/ts/log --port 8090 --torrentsdir /opt/ts/torrents --dontkill`;
-environment includes `TS_DONTKILL=1` and `GODEBUG=madvdontneed=1`.
-The pinned MatriX.143 source audit confirms `--dontkill` ignores process
-termination signals; it does not disable torrent idle expiration. Ordinary Docker
-stop can therefore escalate to a forced kill. The migration must disable automatic
-restart temporarily, use the supported graceful shutdown API, verify actual exit,
-then take the stopped-writer backup. Do not change this flag as an incidental
-migration setting; assess normal signal handling separately afterward.
+### Latest stable target releases
 
-### Persistent state and in-place adoption
+Verified November 8, 2026 against the official GitHub latest-release APIs
+(`draft=false`, `prerelease=false`) and registry manifests:
 
-These are all mounts on the two current containers; there are no named or
-anonymous volumes. None is mounted by another current container.
-
-| Existing host bind | Container path | Owner / directory mode | Required preserved state |
-| --- | --- | --- | --- |
-| `/var/lib/torrserver/config` | `/opt/ts/config` | `0:0`, `0755` | `settings.json` (1,388 B), `config.db` (8,388,608 B, BBolt saved torrents/viewed state), `rutor.ls` (51,173,624 B search state); files `0644` |
-| `/var/lib/torrserver/cache` | `/opt/ts/torrents` | `0:0`, `0755` | Empty at inspection; `UseDisk=false`, so this is not the active RAM cache |
-| `/opt/svtlvtv/jackett/config` | `/config` | `1000:1000`, `0755` | Whole directory, approximately 1.71 MB logical: `Jackett/ServerConfig.json`, `Jackett/Indexers` (24 JSON and 20 backup files), DataProtection state, API/admin credentials and cookie-bearing configuration |
-
-All binds are read/write on the host root ext4 filesystem. **Keep these exact
-host paths for the initial move**; the user requested moving service ownership,
-and relocation is unnecessary. Take a consistent backup regardless of in-place
-adoption. No complete backup or successful restore was verified. Jackett's
-individual `.bak` files are not a complete rollback artifact.
-
-`accs.db` and `trackers.txt` were absent; TorrServer HTTP-auth enabling environment
-was absent. Preserve the current auth contract, without inventing credentials or
-turning authentication on/off during migration. Trackers may still exist inside
-saved records. Preserve any client-side stored credentials without changing
-account documents. Jackett API/admin secret values were not collected in the
-report; its Torznab key matches TorrServer's configured key.
-
-The writable layers are small (TorrServer approximately 743 KB, Jackett 23 KB).
-TorrServer logs live at unmounted `/opt/ts/log`; Jackett temporary files use
-`/run/jackett-temp`. Detailed unmounted files/certificates/download state could
-not be fully read due to permissions; classify/export any required residual
-state before deleting containers. Do not bypass that access boundary or assume
-the mount list alone proves all important state has been backed up.
-
-### Network and runtime contract
-
-- Current networks: `torrserver_default` (only these two containers) and shared
-  `svtlv_monitoring_external`. Preserve aliases `torrserver` and `jackett`.
-  Destination can use its default network plus the existing monitoring network;
-  validate consumers before retiring the old dedicated network.
-- Host bindings: TorrServer `8090/tcp`, Jackett `9117/tcp`, on existing IPv4/IPv6
-  interfaces. No UDP ports are currently published; do not add/change peer
-  exposure during migration. Peer listen port remains dynamically selected.
-- TorrServer calls `jackett:9117/api/v2.0/indexers/all/results/torznab/`; preserving
-  this alias, route and API key is mandatory even if client URLs stay unchanged.
-- Jackett has no configured FlareSolverr/proxy endpoint; no FlareSolverr or VPN
-  container was found in the 25-container inventory. Do not introduce either.
-  Other external consumers and actual per-device endpoints remain unverified.
-  Preserve existing LAN/tailnet reachability; Tailscale Serve was empty.
-- Both use `unless-stopped`; neither has explicit CPU/memory/swap/PID limits or
-  Docker healthchecks. Logging is `json-file` without explicit per-container
-  rotation. Reproduce this baseline first; any limits/logging tuning is separate.
-- Jackett environment: `PUID=1000`, `PGID=1000`, `TZ=Asia/Jerusalem`,
-  `XDG_DATA_HOME=/config`, `XDG_CONFIG_HOME=/config`, `TMPDIR=/run/jackett-temp`.
-  Preserve `Port=9117`, `LocalBindAddress=127.0.0.1`, `AllowExternal=true`,
-  `AllowCORS=false`, `CacheEnabled=true`, `CacheTtl=2100`,
-  `CacheMaxResultsPerIndexer=1000`, `FlareSolverrMaxTimeout=55000`.
-  Blackhole/base-path/base-URL overrides are null; do not create a downloads
-  mapping without establishing a real need. Full private ServerConfig is adopted,
-  not regenerated from this nonsecret summary.
-
-### Capacity evidence and unresolved prerequisites
-
-At 09:51 UTC the host had an Intel N150 with four logical CPUs, 15.365 GiB RAM,
-3.752 GiB available, approximately 4 GiB swap with 3.489 GiB used, zero recent
-memory PSI averages, and low sampled CPU activity. Neighbors include three Kafka
-brokers at approximately 1 GiB each, Aspire at 1.165 GiB and Immich server at
-1.027 GiB plus databases, Keycloak and other services. Idle recovery is not proof
-that three viewers fit. The approximately 713 GiB free root storage does not
-justify switching streaming to disk caching by default.
-
-Passive network observations and a 1 Gbit/s Ethernet link do not establish
-available WAN/tailnet throughput. Measure actual playback bitrates and available
-network performance in the later controlled trials.
-
-Fresh effective TorrServer settings matched `settings.json`: the cache/preload
-table below remains current, `TrackTimecode=false`, `StoreSettingsInJson=true`,
-`StoreViewedInJson=false`, `EnableRutorSearch=true`, `EnableTorznabSearch=true`,
-`EnableDLNA=false`, `EnableIPv6=false`, with no download/upload rate limit. Keep
-the entire original settings object, including unlisted fields and secrets.
-
-Before implementation/cutover, resolve the old source/redeployment owner,
-complete backup/restore and residual writable-state verification, inventory other
-consumers/client endpoints, agree the idle window and workload stop thresholds,
-and verify exact-version idle-reader cleanup on real devices. These are explicit
-unknowns; no configuration migration or three-viewer capacity is yet proven.
-Private supporting docs are under `/home/svtlv/server-admin/` in `SERVICES.md`,
-`RUNBOOKS.md`, `INCIDENTS.md` and the November 6–7 incident reports. The service
-document is historical; the timestamped live inventory takes precedence.
-
-## Backlog coverage and completion criteria
-
-| Existing item | Planned work | Closure evidence |
+| Service | Latest stable target | Published |
 | --- | --- | --- |
-| [Share owned torrents between links](../backlog/share-torrents-between-torrserver-links.md) | Task 7 | Union both membership sets, intersect the active endpoint's live list, remove this user's ownership from both, and pass account/guest/race regressions |
-| [Isolate device-local messages](../backlog/isolate-messages-between-parallel-devices.md) | Task 6 and manual device verification | Distinguish local refresh/load/apply/save failures; test isolated clients; verify the owner's guest plus signed-in arrangement; record whether the original incident was actually reproduced |
-| [Parallel playback and resource peaks](../backlog/parallel-playback-resource-peaks-and-configuration.md) | Tasks 2–5 and 8–10, then operational trials | Consistent migration, measured memory/cleanup profile, no OOM/reclaim collapse or cross-viewer interruption during the stated workload, with host headroom and rollback evidence |
+| TorrServer | `MatriX.150` | November 6, 2026 |
+| Jackett application | `v0.24.3030` | November 8, 2026 |
+| LinuxServer Jackett image | `v0.24.3030-ls30` | November 8, 2026 |
 
-The messages item's title predates its narrowed findings. Do not implement CUB
-recipient filtering, change device identifiers, stop sharing the CUB account, or
-disable synchronization as a claimed fix for the local toast. Adjacent queued
-socket/callback observations are not established incident causes; investigate
-them further only if new evidence makes them necessary to resolve this item.
+Use these release-tagged, multi-platform image-index pins; both include
+`linux/amd64` for production and `linux/arm64`:
 
-Keep backlog files until their respective work and verification land; remove an
-item with the change that closes it. A code fix or healthy `/echo` response alone
-does not close the performance item. Record an unreproduced incident honestly.
+```text
+ghcr.io/yourok/torrserver:MatriX.150@sha256:2d02152b804946848f032dcca94fa0f096c8840cff3d37e1ba5400c30f70e16b
+lscr.io/linuxserver/jackett:v0.24.3030-ls30@sha256:3af37ff2ca5f14da5529b9e2018e384735daf1bf08b99350e1211be863eeae20
+```
 
-## Context and files
+At implementation start, check public release/registry metadata for a newer stable
+release and refresh the target tags/digests if necessary. This is an implementer
+action requiring no owner input or production access. Record the selected versions
+and assess compatibility using their matching source/release notes. Do not use a
+moving development tag or assume old-version behavior proves new-version behavior.
 
-- `devops/docker-compose.yaml`: web, API and PostgreSQL; external monitoring
-  network; stable production project identity is derived from the deploy path.
-- `devops/.env.example`: local placeholders; production `.env` is regenerated by
-  `.github/workflows/deploy-docker.yaml`, so new required variables must be
-  supplied there rather than hand-added to a file the next deploy overwrites.
-- `.github/workflows/deploy-docker.yaml`: manual deployment from the default
-  branch, image rewriting/build-block stripping, currently runs stack-wide
-  `down` before `up`. That lifecycle would interrupt streams on ordinary web/API
-  releases after the new services join this stack.
-- `.github/workflows/tests.yaml`: ES5 parsing, Node runtime checks, backend
-  tests/race/lint, Compose rendering using the example environment.
-- `svtlv/torrserver-ownership.js`: endpoint-derived identity, per-user API and
-  guest-local membership; currently lists/removes only the effective endpoint.
-- `svtlv/account-sync.js`: local account status, errors, dirty state, retries,
-  baseline/revision guards and polling. Both compiled dictionaries remain
-  untouched; add-on strings are inline English/Russian.
-- `app.min.js`: built-in file discovery, modal close, preload and player status
-  loops. Narrow built-in lifecycle fixes must preserve the exported API and the
-  existing removal of shared TorrServer timecodes.
-- Existing runtime tests in `tests/`; membership API in
-  `backend/pkg/api/torrents.go` already provides endpoint-scoped list/claim/release
-  without contacting TorrServer. No backend schema change is needed for unioning
-  two membership sets.
-- Root `.dockerignore` already excludes `docs`, `devops` and `tests`. Keep all
-  operational artifacts there; no new public image directory is necessary.
+MatriX.150 source inspection confirms the container path variables/`TS_DONTKILL`
+flag, cache-size byte units, preload/read-ahead percentage units, no-reader expiry
+condition and settings-save entry point still exist. The old MatriX.143 resource
+observations remain baseline evidence, not a benchmark of the upgraded version.
+Retain complete existing configuration instead of replacing it with new defaults.
 
-## Development approach and testing
+### Existing persistent data and runtime settings
 
-- Use the existing regular approach: focused implementation followed by targeted
-  behavioral regressions in the same task. Pass each task's checks before moving
-  to its dependents. Documentation-only tasks need document/snippet validation,
-  not artificial unit tests mirroring their text.
-- Keep migration, application fixes and tuning independently reviewable and
-  reversible. Pin actual running third-party versions/digests; defer upgrades.
-- Add/update success, failure and asynchronous lifecycle tests for code changes.
-  Use the existing Node VM patterns to exercise actual add-on/bundle code.
-- Run `node --test tests/*.test.cjs` and the pinned ES5 gate. Any bundle change
-  also needs ES5 parsing and browser/TV checks; syntax parsing cannot detect
-  unsupported post-ES5 APIs.
-- Validate Compose with its example environment in CI and the actual production
-  Compose version in a rehearsal. Do not introduce release-time grep guards for
-  Compose structure, tags or exact port bindings.
-- Backend code is expected to stay unchanged. If scope requires backend changes,
-  add matching Go regressions and run `make test`, `make race`, `make lint` and
-  formatting in a supported Linux/WSL/CI environment with Docker required for DB
-  coverage. Do not report skipped DB tests as successful database validation.
-- Mark completed checkboxes immediately. Update this plan when evidence changes
-  the approach; do not mark external acceptance complete on repository tests.
-
-## Solution overview
-
-### Preserve service identity while transferring deployment ownership
-
-First reproduce each existing service contract in this repository: exact runtime
-version, persistent storage, UID/GID, command/environment, ports/protocols,
-networks/aliases, proxy behavior and dependencies. Preserve client-visible
-TorrServer LAN/tailnet URLs and Jackett URL/API key so account documents, plugins,
-other consumers and URL-derived membership IDs do not require migration.
-
-Prefer adopting existing host bind paths or explicitly named external volumes
-when their ownership and backup model are suitable. Moving a Compose definition
-does not require moving its data. If data is currently inside a container or a
-path must change, use a validated destination and a stopped-writer final copy.
-Do not assume Docker will adopt a container labeled for another Compose project.
-Retain a restorable old definition and image while preventing the old deployer
-from recreating these two services after ownership transfers.
-
-The old stack may contain unrelated services. Stop/remove only the transferring
-services; do not run its stack-wide `down`, remove its shared networks, or delete
-volumes. Never run two writers against the same live configuration database.
-For the observed deployment, adopt the three existing binds and use the new
-default network plus monitoring network with preserved service aliases. No data
-directory relocation, new downloads volume or helper migration is currently
-justified. Reconfirm the old network's consumers before eventual retirement.
-
-### Protect ordinary releases from interrupting playback
-
-Change the normal release path from stack-wide `down` to an update that reconciles
-services without stopping unchanged TorrServer/Jackett instances. Keep the
-current simple release model, web/API `latest` publication, environment choice,
-monitoring network and API health wait. Third-party services use pinned vendor
-images, not new GitHub build-matrix entries. Preserve web `8092:80`; do not add a
-proxy for media/search under the existing API-only Apache route.
-
-### Fix client behavior separately
-
-Union ownership records for the two configured normalized endpoint IDs, dedupe
-them, and intersect only with the active endpoint's torrent list. Claim under
-the endpoint used to save. Removal releases ownership under both configured IDs,
-never removes a torrent from the server, and reports partial failure honestly.
-
-Classify account errors by operation so a background read failure cannot claim
-an unsaved edit. Retain safe retries, streak suppression, dirty values, boot
-fallback and identity/revision guards. Diagnostics expose only operation category,
-method/status and timing, never document contents or credentials.
-
-For built-in file-dialog cancellation and discovery timeout, stop local requests
-and timers without sending a hash-wide drop that can interrupt another reader.
-Keep the explicit public `Torserver.drop` API working. Rely on verified server
-reader disconnect/expiry for cleanup; confirm that actual startup flags permit
-bounded cleanup. Do not substitute a blanket no-op wrapper or assume a local
-viewer counter represents all devices.
-
-### Tune memory first, then search overhead
-
-Do not recreate the known dangerous multi-GiB workload just to obtain a baseline.
-Use historical evidence plus bounded/isolated measurements. Verify supported
-options against the exact installed version before applying them.
-
-The existing MatriX.143 investigation proposes a **trial**, not a proven profile:
-
-| Option | Historical baseline | Candidate / meaning |
+| Host bind source | Container destination | Ownership / content |
 | --- | --- | --- |
-| `CacheSize` | `2147483648` | `536870912` bytes (512 MiB per distinct hash) |
-| `PreloadCache` | `1` | Try cache-only reduction first; then `4` percent to restore approximately 20.48 MiB nominal preload |
-| `ReaderReadAHead` | `95` | Retain initially; optional later `80` trial changes ahead/behind allocation, not total capacity |
-| `ConnectionsLimit` | `25` | Retain initially; optional later `16` trial only if throughput remains adequate |
-| `UseDisk` / `ResponsiveMode` | `false` / `true` | Retain initially |
-| `TorrentDisconnectTimeout` | `30` | Retain pending real reader/expiry verification; polling can refresh lifetime |
-| rate limits / upload | unlimited / enabled | Preserve initially; no blanket cap that prevents users choosing 4K |
+| `/var/lib/torrserver/config` | `/opt/ts/config` | `0:0`, directory `0755`; `settings.json`, BBolt `config.db`, search state `rutor.ls` |
+| `/var/lib/torrserver/cache` | `/opt/ts/torrents` | `0:0`, directory `0755`; empty at observation, RAM cache enabled |
+| `/opt/svtlvtv/jackett/config` | `/config` | `1000:1000`, directory `0755`; complete server/indexer configuration, credentials, cookies and DataProtection state |
 
-Three distinct hashes at 512 MiB imply 1.5 GiB **nominal cache**, not a process
-memory limit. Piece allocation, reader/in-flight state, Go heap, network buffers,
-helpers and allocator overhead need measured headroom. Same-hash readers share
-cache, so resolution or viewer count alone is not a memory-budget formula.
+These are all recorded mounts; there are no named/anonymous volumes. Jackett has
+24 indexer JSON files and 20 `.bak` files; those backups are not a verified full
+backup. Its directory under `/opt` remains a required live bind source.
 
-Choose a sustained budget from host capacity minus neighboring-service demand
-and OS headroom. Only then evaluate a Compose-supported process memory boundary,
-reservation/swap behavior and supported Go runtime options. A cgroup OOM is still
-a playback failure; a cap alone is not the fix. Do not enable disk caching,
-extra instances, aggressive GC, swap changes or CPU throttles without evidence.
-Use controls enforced by the actual standalone Compose/Engine combination;
-do not assume a Swarm-only resource declaration constrains these containers.
+TorrServer's effective command is:
 
-Jackett supports discovery/search rather than the steady media stream. Measure
-concurrent searches, enabled-indexer fan-out, retries, FlareSolverr/browser work
-and neighboring consumers separately. Keep all indexer configuration, API keys,
-authentication/cookies, proxy configuration and blackhole paths. Choose only
-version-supported search/timeouts/resource changes after measurement; do not
-invent a generic concurrency environment variable or remove indexers to make a
-benchmark pass. Record application auto-update behavior because a pinned image
-may not contain the binary currently executing in an updated writable layer.
+```text
+torrserver --path /opt/ts/config --logpath /opt/ts/log --port 8090 --torrentsdir /opt/ts/torrents --dontkill
+```
 
-TorrServer settings saves are interrupting in the audited version: they replace
-the full settings object and reset torrent/client state. Apply a candidate by
-merging into a preserved full snapshot, during an idle window, and verify readback.
-Never submit the table as a sparse settings replacement or assume file edits
-hot-reload. Keep runtime cache/settings out of Git except sanitized profiles.
+Environment includes `TS_DONTKILL=1` and `GODEBUG=madvdontneed=1`; the process runs
+as `0:0`. HTTP-auth enabling environment, `accs.db` and `trackers.txt` were absent.
+Preserve that contract and any stored client credentials; introduce no new auth
+requirement. Logs are in the writable layer at `/opt/ts/log`.
+
+Jackett runs `/app/Jackett/jackett --NoUpdates` as `1000:1000`, with a root s6
+supervisor. `AUTO_UPDATE` is absent and no application writable-layer changes were
+observed. Preserve effective `--NoUpdates` behavior even though persisted
+`UpdateDisabled=false`. Environment includes `PUID=1000`, `PGID=1000`,
+`TZ=Asia/Jerusalem`, `XDG_DATA_HOME=/config`, `XDG_CONFIG_HOME=/config`,
+`TMPDIR=/run/jackett-temp`. Persisted settings include `Port=9117`,
+`LocalBindAddress=127.0.0.1`, `AllowExternal=true`, `AllowCORS=false`,
+`CacheEnabled=true`, `CacheTtl=2100`, `CacheMaxResultsPerIndexer=1000`.
+Blackhole/base-path/base-URL overrides are null. Adopt the complete existing
+configuration rather than rebuilding it from these nonsecret examples.
+
+TorrServer uses `jackett:9117/api/v2.0/indexers/all/results/torznab/`; its configured
+API key matches Jackett's. Preserve that DNS alias, route and stored key. No
+FlareSolverr/VPN container or configured Jackett proxy/FlareSolverr endpoint was
+found; add none. Preserve the monitoring network and existing client endpoints.
+
+Neither service currently has explicit CPU/memory/swap/PID limits or Docker
+healthchecks. Both use `json-file` logging without explicit container rotation.
+The source repository/redeployer of the old definition, additional external
+consumers, a verified full backup and details of residual writable-layer files
+were not established. These unknowns do not block implementing the definitions;
+the repository must not invent replacement data or require their discovery.
+
+### Established application findings
+
+- The reported warning was **"Not saved to Account"** on a signed-in device while
+  another device was anonymous. `svtlv/account-sync.js` uses the save-error path
+  for background GET failures and apply errors as well as actual save failures.
+  Offline characterization reproduced the misleading toast without a PUT. There
+  is no established cross-device message delivery or proven production cause.
+- `svtlv/torrserver-ownership.js` currently scopes membership to the effective URL.
+  The requested behavior is the union of the current user's ownership under both
+  configured URLs, intersected with the active endpoint's live list. The existing
+  API already supports endpoint-scoped membership without contacting TorrServer.
+- Built-in file-dialog close and file-discovery timeout call
+  `Torserver.drop(SERVER.hash)`, a hash-wide cancellation that can affect another
+  viewer. Discovery timeout also needs terminal timer/request cleanup. Remove
+  these automatic destructive calls while keeping explicit public `drop` working.
+- MatriX.143 expires cached torrents when there are no readers and their expiry
+  deadline has passed. Status/cache requests can extend that deadline. This
+  supports local cancellation without hash-wide drops; actual deployed cleanup
+  remains a later acceptance check, not an implementation prerequisite.
+- `--dontkill` controls process signals, not torrent idle expiry. The audited
+  baseline and MatriX.150 sources ignore SIGTERM with this flag. The supported
+  `/shutdown` API closes the
+  torrent client and database before exit. These semantics inform the handover;
+  implementation must not call that API or alter an old container.
+
+### Resource findings and candidate basis
+
+The host snapshot showed an Intel N150 with four logical CPUs, 15.365 GiB RAM,
+3.752 GiB available and approximately 4 GiB swap with 3.489 GiB used. Neighbors
+include three approximately 1 GiB Kafka brokers, Aspire, Immich, databases and
+Keycloak. Ethernet negotiated 1 Gbit/s; available WAN/tailnet capacity was not
+measured.
+
+A confirmed November 7 global OOM killed TorrServer at approximately 7.3 GiB
+anonymous resident memory with swap exhausted. That establishes the victim, not
+a leak or the initiating request. The deployed settings still used
+`CacheSize=2147483648`, `PreloadCache=1`, `ReaderReadAHead=95`,
+`ConnectionsLimit=25`, `UseDisk=false`, `ResponsiveMode=true`,
+`TorrentDisconnectTimeout=30`, unlimited download/upload and `DisableUpload=false`.
+`TrackTimecode=false`, `StoreSettingsInJson=true`, `StoreViewedInJson=false`.
+
+CacheSize is per distinct torrent hash, not a global process limit. Three distinct
+torrents currently imply 6 GiB nominal cache; a 512 MiB candidate implies 1.5 GiB,
+plus unmeasured piece/reader/network/heap overhead. Same-hash readers share cache.
+A 4% preload with a 512 MiB cache gives approximately 20.48 MiB nominal preload.
+These source-supported candidates are untested; do not represent them as proven
+production settings or silently apply them during migration.
+
+## Repository constraints and implementation design
+
+- Frontend distribution files are edited directly; there is no frontend build
+  system. All shipped JavaScript remains ES5-compatible.
+- Account and ownership changes stay in `svtlv/` and use public `window.Lampa`
+  APIs. Built-in cancellation changes are narrowly marked edits in `app.min.js`.
+  Do not change compiled CSS or locale dictionaries for these add-ons.
+- Preserve boot fallback, account-generation/baseline/revision guards, dirty local
+  edits, encryption policy, shared credentials, local player/link selection and
+  Timeline behavior. Add-on messages use inline English/Russian strings.
+- Ownership uses the existing normalization and SHA-256 IDs. Union the two
+  configured IDs without physical-server discovery or backend schema changes.
+  Claim under the endpoint used for the operation. Removal releases only this
+  user's membership under both IDs, never the server torrent. Partial failure
+  must not report success; retries are idempotent.
+- Capture both endpoint IDs plus account/selection/operation generations. Invalidate
+  pending ownership work after either URL changes, account switching, logout or
+  away-and-back selection changes. Preserve equivalent browser-local guest logic.
+- Classify account errors by caller intent and phase. An unchanged client's failed
+  background read must not claim an unsaved edit; a failed read required to save
+  dirty edits can still mean the save failed. Keep retries and failure suppression.
+- Existing Apache remains an API-only proxy; add no media/search proxy. Keep web
+  `8092:80`, project/volume identity, environment selection and monitoring access.
+- Deploy selected stable third-party image pins through the Compose workflow, not new
+  build-matrix images. Preserve image-before-build and build-block stripping
+  layout. Update `.env.example` and generated deployment env together only if new
+  variables are actually needed; service definitions require no new credentials.
+- Operational artifacts belong under existing `devops/`, `docs/` and `tests/`,
+  already excluded from the public web image. Do not add a public data directory.
+
+## Implementation checks and completion
+
+Each task delivers repository changes and passes applicable automated checks
+before dependent tasks. Use fixture data and mocked HTTP/timers/clients; no
+production host, owner input, device playback or live credentials are needed.
+Documentation tasks need link/path/snippet checks, not artificial unit tests.
+
+Run the Node runtime suite, pinned ES5 syntax gate, Compose rendering with the
+example env and shell syntax checks. The measurement collector is tested with
+fixtures, not live measurements. Backend code is not expected to change; any
+necessary backend change also needs matching Go tests and the existing supported
+Linux/CI lint/test/race checks. Do not hide skipped or unavailable checks.
+
+Completion means all repository deliverables and applicable automated checks are
+finished, resolved backlog files are removed, and the final handover is complete.
+Archive this plan at that point. Deployment and live acceptance are explicitly
+unperformed and cannot block completion or be claimed as passed.
 
 ## Implementation steps
 
-### Task 1: Finalize the production inventory and preservation contract
+### Task 1: Publish the recorded service and data contract
 
 **Files:**
-- Create: `docs/container-migration-inventory.md` (sanitized facts only)
-- Modify: this plan
+- Create: `docs/container-migration-inventory.md`
+- Modify: this plan only if implementation reveals a repository-level correction
 
-- [ ] Incorporate the Hermes report with observation times, evidence locations,
-  exact image/runtime versions and unresolved facts. Recheck stale facts before
-  cutover; keep secrets/private infrastructure evidence on the server.
-- [ ] Record every service/deployer, persistent/writable-layer path, bind/volume,
-  owner/mode, network/alias, published TCP/UDP mapping, health/monitoring check,
-  proxy/VPN/helper and external consumer. Distinguish auth/config/database data
-  from disposable cache and current streams.
-- [ ] Produce an old-to-new mapping with the actual storage names and adoption
-  or copy choice for each path. Include TorrServer settings/auth/saved torrents/
-  trackers and Jackett server/indexer/API-key/cookie/cert/download state.
-- [ ] Resolve runtime auto-updates and restorable version artifacts; an image
-  digest alone is insufficient if the running app was updated after creation.
-- [ ] Validate the inventory against selected read-only inspect/config metadata;
-  identify maintenance-window and external-owner actions explicitly. Do not fill
-  missing values with generic Docker examples.
+- [ ] Record old baseline images separately from the selected latest-stable
+  targets. Refresh targets from public release/registry metadata if needed, then
+  record commands, ports, UID/GID, networks and binds. No production access is needed.
+- [ ] Document preservation of full existing configuration and the internal
+  Torznab connection without copying credentials or private data into Git.
+- [ ] Identify the existing Jackett bind under `/opt` as persistent data rather
+  than obsolete deployment source.
+- [ ] Document known unknowns as post-implementation context, not prerequisites
+  or requests for the owner to act during implementation.
+- [ ] Validate documented values against this plan and repository path conventions.
 
-### Task 2: Add the existing TorrServer service without tuning
+### Task 2: Add the TorrServer Compose service
 
 **Files:**
-- Modify: `devops/docker-compose.yaml`, `devops/.env.example`
-- Modify: `.github/workflows/deploy-docker.yaml` (only new configuration inputs)
+- Modify: `devops/docker-compose.yaml`, `devops/.env.example` if needed
+- Modify: `.github/workflows/deploy-docker.yaml` only for necessary env wiring
 
-- [ ] Define TorrServer using the actual installed version/digest and verified
-  command/env, auth flags, storage, restart policy, ports/protocols and network
-  contracts. Preserve current application settings during transfer.
-- [ ] Select existing bind/external-volume adoption or validated copied storage
-  from Task 1; account for local development paths without silently creating
-  empty production data. Keep sensitive state outside checkout/web output.
-- [ ] Add only required environment inputs with harmless example placeholders;
-  make production environment generation preserve/provide all required values.
-- [ ] Define lightweight, image-supported liveness that does not start a stream,
-  touch a torrent or refresh cache lifetime. Preserve required monitoring access.
-- [ ] Render local/release Compose with nonsecret fixtures and verify service
-  startup/auth/storage/port compatibility in an isolated rehearsal using copied
-  synthetic data; verify missing/invalid inputs fail clearly. Keep build-block
-  layout compatible with the existing deploy transformation. Rehearsal uses
-  distinct explicit container names, ports and data copies: `-p` alone does not
-  isolate a Compose file with fixed `container_name`. On ARM development hosts,
-  use a compatible Linux/amd64 test host or explicit emulation for these pins.
+- [ ] Define `torrserver` with the selected latest-stable release/digest, compatible
+  command/environment, existing root ownership, restart policy and `8090/tcp`
+  host bindings. Check target-version config/CLI compatibility from public source.
+- [ ] Mount `/var/lib/torrserver/config:/opt/ts/config` and
+  `/var/lib/torrserver/cache:/opt/ts/torrents`; preserve current settings in place.
+- [ ] Join destination default and monitoring networks with alias `torrserver`.
+  Preserve current peer exposure, auth and signal behavior; add no migration job.
+- [ ] Define image-supported liveness that touches no torrent/cache/stream and
+  does not require introducing credentials or production access during development.
+- [ ] Validate rendered Compose and env fixtures, including missing/invalid inputs
+  and compatibility with the existing release transformation.
 
-### Task 3: Add the existing Jackett service without tuning
+### Task 3: Add the Jackett Compose service
 
 **Files:**
-- Modify: `devops/docker-compose.yaml`, `devops/.env.example`
-- Modify: `.github/workflows/deploy-docker.yaml` (only new configuration inputs)
+- Modify: `devops/docker-compose.yaml`, `devops/.env.example` if needed
+- Modify: `.github/workflows/deploy-docker.yaml` only for necessary env wiring
 
-- [ ] Define Jackett using its verified running application and image versions,
-  UID/GID/TZ, command/env/update behavior, config/download mounts, permissions,
-  ports, networks and DNS aliases; preserve proxy/helper dependencies.
-- [ ] Preserve its current API key and complete private indexer/server state.
-  Do not replace the configuration with an example or export secrets into GitHub
-  logs. Preserve other applications' integrations as well as Lampa's settings.
-- [ ] Keep a shared FlareSolverr/VPN in its existing stack unless the inventory
-  proves it belongs exclusively with Jackett and needs to move; document any
-  shared external network explicitly.
-- [ ] Render Compose and rehearse with synthetic configuration, including
-  ownership mismatch, unreachable helper and missing mount cases. Verify the
-  target version can read copied state without an unplanned schema upgrade.
-- [ ] Record configuration/API-key/indexer-count comparison checks that return
-  pass/fail without printing private values; pass the Compose CI check.
+- [ ] Define `jackett` with the selected latest-stable release/digest, effective
+  in-container no-update behavior,
+  UID/GID/TZ/environment, restart policy and `9117/tcp` host bindings.
+- [ ] Mount `/opt/svtlvtv/jackett/config:/config` directly; do not regenerate
+  ServerConfig, indexers, cookies, DataProtection state or API/admin credentials.
+- [ ] Preserve alias `jackett` on the default and monitoring networks and the
+  TorrServer Torznab route. Add no FlareSolverr/VPN or unused downloads mount.
+- [ ] Define supported liveness/readiness and document expected failures without
+  requiring a running production container or revealing private configuration.
+- [ ] Validate Compose/env fixtures and the declared image, mount, identity,
+  environment, port and network contracts with applicable local checks.
 
-### Task 4: Preserve live playback during ordinary web/API deployments
+### Task 4: Include both services in every normal full-stack deployment
 
 **Files:**
 - Modify: `.github/workflows/deploy-docker.yaml`
-- Modify: `.github/workflows/tests.yaml` only if existing checks need extending
+- Modify: `.github/workflows/tests.yaml` only for changed automated checks
 
-- [ ] Replace normal stack-wide `down` with reconciliation that leaves unchanged
-  third-party services running; retain pulling the intended images and updating
-  web/API services. Do not force-recreate the whole project or remove orphans
-  belonging to other owners.
-- [ ] Preserve project/volume identity, default-branch/manual-only behavior,
-  environment handling, external monitoring network and the API health wait.
-- [ ] Ensure third-party digest pins survive release image rewriting and remain
-  vendor pulls rather than locally built `:latest` images. Do not prune retained
-  rollback images/artifacts before migration acceptance.
-- [ ] Validate release shell syntax and Compose output; rehearse a web/API-only
-  update with unchanged third-party container IDs/start times, then a deliberate
-  service-specific update. Verify failed API startup still reports failure.
-- [ ] Keep the release path simple: no new release-time Compose grep guards,
-  media proxy, broad published-port rewrite or unrelated database binding change.
+- [ ] Retain full-stack pull/down/up so TorrServer and Jackett redeploy with
+  Lampa even when unchanged. Preserve project/volume identity and manual trigger.
+- [ ] Keep vendor pins intact through release image rewriting/build-block removal;
+  preserve environment handling, monitoring network and existing API health wait.
+- [ ] Implement needed TorrServer/Jackett readiness and failed-startup reporting;
+  keep the release path simple, without release-time Compose grep guards.
+- [ ] Add no old-project takeover, data copying, settings rewrite or `/opt`
+  deletion logic. Preserve existing mounts and normal data-volume retention.
+- [ ] Validate workflow shell syntax, rendered release Compose and relevant
+  automated checks without dispatching a workflow or deploying anything.
 
-### Task 5: Write and rehearse configuration transfer and rollback
+### Task 5: Write the manual handover documentation
 
 **Files:**
 - Create: `docs/container-migration-runbook.md`
 - Modify: `docs/container-migration-inventory.md`
 
-- [ ] Write the precise, inventory-based cutover sequence and commands described
-  below, with storage capacity/ownership checks, writer quiescence and a single
-  deployment owner. Clearly label source project and destination project. For
-  current TorrServer, account for `--dontkill`: temporarily disable its restart
-  policy, invoke the supported `/shutdown` API during the idle window and verify
-  exit before backing up; retain its original policy for rollback.
-- [ ] Specify offline/private backups of full configuration, databases, mutable
-  application artifacts and required secrets, including checksums and a restore
-  rehearsal. Keep RAM cache and active connections classified as nonmigratable.
-- [ ] Document current-path adoption versus stopped final copy, conflict handling
-  for old container names/ports, and old automation retirement without stopping
-  unrelated services or deleting volumes/shared networks.
-- [ ] Specify post-start integrity/endpoint/credential/consumer checks, rollback
-  before and after new writes, and a retention period for old artifacts. Restoring
-  an old snapshot after new writes requires explicit reconciliation/data-loss
-  accounting; do not silently discard new saved torrents or indexer edits.
-- [ ] Validate all shell snippets and complete a synthetic restore/cutover/rollback
-  rehearsal. Record actual outcomes, duration and limitations; writing the
-  runbook is not evidence production configuration was migrated.
+- [ ] Document the final handover sequence from this plan: old-container stop,
+  new deployment, verification, then obsolete-source cleanup.
+- [ ] Explain the current signal-handling caveat and graceful shutdown API as
+  instructions only; implement no host shutdown or migration helper.
+- [ ] Distinguish removable deployment definitions from all retained bind data,
+  especially `/opt/svtlvtv/jackett/config`.
+- [ ] Document upgrade-aware manual rollback, pre-upgrade configuration/database
+  backups, saved-data/credential comparisons and expected deployment interruptions.
+  Do not assume the old binary can read state rewritten by the newer release.
+- [ ] Validate paths, links and any command snippets locally. Do not execute the
+  instructions or require the owner to verify them before this task completes.
 
-### Task 6: Separate account refresh/load/apply errors from failed saves
+### Task 6: Correct account error classification and diagnostics
 
 **Files:**
 - Modify: `svtlv/account-sync.js`, `tests/account-sync.test.cjs`
-- Modify: `tests/account-state.test.cjs` if account UI behavior changes
+- Modify: `tests/account-state.test.cjs` if affected
 
-- [ ] Classify startup/account-load/read/apply/write failures at their producing
-  paths; add concise English/Russian add-on messages. A failed background GET on
-  an unchanged client must not display a claim that a save failed. Classify by
-  caller intent as well as HTTP method: a failed read required to save dirty
-  edits can still mean those edits could not be saved.
-- [ ] Keep authentication expiry behavior, local dirty edits, storage-failure
-  upload disablement, safe retries, failure-streak suppression, boot deadline,
-  baseline/revision guards and account-switch/logout fencing intact.
-- [ ] Add bounded local diagnostics for phase, method/status/category and elapsed
-  time; exclude URLs containing credentials, document bodies, user/token IDs and
-  private settings. Do not add new account-synced transient state.
-- [ ] Add regressions for unchanged-client read failure, actual PUT failure,
-  save-preflight read failure, apply/storage failure, boot deadline,
-  recovery/repeated failures and stale responses across accounts. Use independent
-  guest/signed-in clients, same-account clients and different accounts without
-  assuming notification transport.
-- [ ] Run account runtime tests and ES5 parsing. Keep any statement about the
-  owner's precise production failure open until device evidence establishes it.
+- [ ] Separate boot/load/background-read/apply/save error paths and add accurate
+  English/Russian messages, preserving caller intent for save-preflight reads.
+- [ ] Preserve authentication expiry, dirty edits, storage-failure disablement,
+  safe retries, failure-streak suppression and all account/baseline/revision guards.
+- [ ] Add bounded local diagnostics for phase, method/status/category and timing;
+  exclude credentials, document bodies, user/token IDs and private setting values.
+- [ ] Add independent-client tests for guest/signed-in and account combinations,
+  read/PUT/apply/storage failures, boot deadline, recovery, repeated errors and
+  stale callbacks after account changes.
+- [ ] Pass account runtime and ES5 checks. Record the production incident as
+  unreproduced rather than adding a live-device dependency or speculative socket fix.
 
-### Task 7: Share owned torrents across both configured links
+### Task 7: Share owned torrents across the two configured links
 
 **Files:**
 - Modify: `svtlv/torrserver-ownership.js`, `tests/torrserver-ownership.test.cjs`
-- Modify: `tests/torrserver-one-link.test.cjs` where its existing expectations change
+- Modify: `tests/torrserver-one-link.test.cjs` if affected
 - Modify: `backend/README.md`, `docs/design/settings-sync-backend-design.md`
 - Modify: `tests/ownership-docs.test.cjs` only for changed documented contracts
 
-- [ ] Factor the existing normalization/digest into reusable endpoint-ID handling;
-  build a deduplicated set from both configured URLs, preserving effective-link
-  fallback and existing IDs. No physical-server discovery or data migration.
-- [ ] Read both membership sets through the existing API, union them, intersect
-  with the active endpoint's live list, and fail closed on unavailable membership
-  reads. Never contact the inactive TorrServer address or expose another user's
-  torrents. Preserve guest-local equivalent behavior.
-- [ ] Keep saving scoped to the endpoint used for that operation. Release this
-  user's membership under both IDs on removal; use idempotent retries after
-  partial failure, never report full success early and never physically delete
-  the torrent. Dedupe identical normalized endpoints.
-- [ ] Capture both URL identities plus account/selection/operation generations;
-  invalidate pending work on either URL edit, account switch, logout or link
-  change, including away-and-back changes. Retain local selector and shared
-  credential-sync semantics.
-- [ ] Add tests for shared/different servers, absent active-server torrent,
-  duplicate hashes/URLs, empty/fallback URLs, auth/partial failures, retry and
-  account/guest isolation/races. Preserve the existing test that public `drop`
-  stays original. Run ownership/account/ES5 checks and update affected docs.
+- [ ] Reuse existing endpoint normalization/digest logic to obtain both configured
+  IDs, deduplicating equivalent URLs while preserving current IDs and fallback.
+- [ ] Union the current user's membership through existing API reads and intersect
+  the active endpoint list; fail closed on errors and never contact the inactive
+  TorrServer. Implement the equivalent guest-local behavior.
+- [ ] Keep claims scoped to the used endpoint. Release both memberships on removal
+  without deleting the server torrent, reporting partial failure and allowing
+  idempotent retry without a false success.
+- [ ] Fence results using both URLs and account/selection/operation generations,
+  including away-and-back changes. Keep selector local and credentials shared.
+- [ ] Add automated shared/different-server, absent-torrent, duplicate/empty URL,
+  hash, failure/retry and identity-race cases; retain original public `drop`
+  behavior. Pass ownership/account/ES5 checks and update matching docs.
 
-### Task 8: Make built-in discovery cancellation safe for other viewers
+### Task 8: Make built-in cancellation and timer cleanup safe for other viewers
 
 **Files:**
-- Modify: `app.min.js` (only affected built-in lifecycle paths)
+- Modify: `app.min.js` only at affected built-in lifecycle paths
 - Create: `tests/torrserver-playback.test.cjs`
-- Modify: `.github/workflows/tests.yaml` to run the new behavioral tests
+- Modify: `.github/workflows/tests.yaml` to run the new automated tests
 
-- [ ] Add characterization tests executing actual discovery/dialog/preload code:
-  identify hash-wide drops on dialog close and discovery timeout, timer/request
-  behavior and late responses after cancellation/restart.
-- [ ] Replace these automatic destructive cancellations with local cleanup;
-  leave explicit exported `Torserver.drop` and membership-only removal intact.
-  Mark narrow bundle changes for upstream reapplication. Do not implement this
-  by overriding every public drop with a no-op.
-- [ ] End discovery intervals on terminal timeout and guard stale callbacks so
-  they cannot reopen UI, issue repeated work or act on a replacement torrent.
-  Fix duplicate status/preload loops only where characterization proves them;
-  preserve necessary paused-reader keepalive behavior.
-- [ ] Verify the installed server's reader lifetime, disconnect flags and expiry
-  allow bounded cleanup without forced cross-client drops. If not, resolve that
-  prerequisite with a separately tested supported mechanism before release;
-  do not assume an in-tab reader count is authoritative across devices.
-- [ ] Add success/error/repeated-open/late-response regressions, same-hash client
-  A cancellation while B streams, different hashes, timeout and local player
-  teardown. Run Node/ES5 checks; real two-device interruption/cleanup checks stay
-  mandatory. Preserve the existing Timeline/timecode behavior.
+- [ ] Characterize actual discovery/dialog/preload functions with mocked requests,
+  timers and a shared fake server; identify automatic hash-wide drop calls.
+- [ ] Replace automatic close/discovery-timeout drops with local cleanup. Preserve
+  explicit public `Torserver.drop`, membership-only removal and Timeline behavior.
+- [ ] End terminal discovery intervals, clear local requests and reject stale
+  callbacks after cancel/reopen/replacement. Fix duplicate polling only where
+  characterized; preserve necessary paused-reader behavior.
+- [ ] Check the reader-expiry contract against the selected stable target's source;
+  do not introduce a cross-device viewer count based only on one tab's state.
+- [ ] Add success/error/timeout/repeated-open/late-response and simulated two-client
+  regressions. Mark narrow bundle changes for upstream reapplication and pass
+  Node/ES5 checks without waiting for real devices or server experiments.
 
-### Task 9: Add repeatable bounded measurements and candidate profiles
+### Task 9: Implement the bounded resource-measurement collector
 
 **Files:**
-- Create: `devops/measure-playback.sh`
-- Create: `tests/playback-measurement.test.cjs`
+- Create: `devops/measure-playback.sh`, `tests/playback-measurement.test.cjs`
 - Create: `docs/parallel-playback-validation.md`
-- Modify: `.github/workflows/tests.yaml` to run relevant new runtime checks
+- Modify: `.github/workflows/tests.yaml` for relevant automated checks
 
-- [ ] Collect timestamped bounded cgroup/host CPU, current/peak memory, OOM
-  counters, swap-in/out, reclaim, CPU/memory/I/O PSI, disk/network rates and
-  neighboring-service health. Track container/cgroup generation so a restart
-  cannot erase prior peaks/OOM evidence. Handle unavailable metrics explicitly.
-- [ ] Include labeled viewer start/seek/stop events, actual measured bitrate,
-  stream counts, client/player/codec/network route, startup/seek latency and
-  buffering. Do not collect media identifiers/private logs or poll status/cache
-  endpoints during cleanup measurements when those calls refresh lifetime.
-- [ ] Define baseline/candidate snapshots, one-variable trial order, exact
-  version/units and full-settings merge/readback/rollback steps. Treat 512 MiB
-  then preload 4% as hypotheses pending production-version verification.
-- [ ] Add fixture-based parsing/duration/cgroup-restart/missing-metric/failure
-  tests; prove the collector performs no settings writes, stream requests or
-  unbounded work. Run shell syntax checks and Node tests.
-- [ ] Document the workload matrix, success/abort criteria and report template
-  below, including single 4K and optional concurrent 4K. Do not load-test live
-  production as part of implementing the collector.
+- [ ] Implement timestamped, duration-bounded collection of host/container CPU,
+  current/peak memory, OOM, swap/reclaim, CPU/memory/I/O pressure, disk/network
+  rates and configured service health. Handle missing metrics explicitly.
+- [ ] Track container/cgroup generations and accept playback event/bitrate/client
+  annotations. Avoid private media identifiers and torrent requests that extend
+  cache lifetime. Produce a documented result format for later comparisons.
+- [ ] Keep the collector read-only: no settings writes, streams, forced restarts,
+  production load generation or cleanup mutations.
+- [ ] Add fixture tests for parsing, time bounds, restart generations, unavailable
+  counters, errors and output redaction; validate shell syntax and Node behavior.
+- [ ] Document usage and example fixture output. Actual production collection is
+  not required or performed as part of this task.
 
-### Task 10: Persist only validated performance settings and boundaries
+### Task 10: Package the tuning candidates and acceptance procedure
 
 **Files:**
-- Modify: `devops/docker-compose.yaml`, `devops/.env.example`
-- Modify: `.github/workflows/deploy-docker.yaml` if validated inputs change
 - Modify: `docs/parallel-playback-validation.md`, `docs/container-migration-runbook.md`
+- Modify: this plan's final handover only if implementation changes usage
 
-- [ ] After external trial evidence is available, record baseline/candidate
-  outcomes and choose the supported TorrServer cache/preload/cleanup settings
-  that meet the target; document unsupported/high-bitrate combinations honestly.
-- [ ] Calculate aggregate cache/overhead and host-neighbor headroom. Persist only
-  measured Compose-compatible resource controls and any verified runtime knobs;
-  test the boundary without calling an OOM/restart successful prevention.
-- [ ] Evaluate Jackett/search/helper overhead separately. Persist only supported,
-  measured timeout/concurrency/update/resource changes without losing indexers,
-  cookies, API keys, proxy dependencies or external consumer functionality.
-- [ ] Keep current user-selectable media qualities and direct-play capability;
-  avoid forcing GST off on clients that need it. Preserve useful account sync,
-  local active-link selection and both connection URLs.
-- [ ] Add/update behavioral tests for any new apply/measurement code; otherwise
-  render/test effective Compose settings and repeat the bounded trial after
-  recreation. Document durable config sources, units, trade-offs and rollback;
-  leave this task pending if runtime evidence is unavailable.
+- [ ] Document source-supported candidate fields, units, aggregate-cache math and
+  trade-offs: 512 MiB cache first, then 4% preload as a separate trial.
+- [ ] Document how later measurements determine overhead, host headroom and
+  supported resource boundaries. Keep unmeasured caps/runtime knobs unapplied.
+- [ ] Document separate Jackett search-overhead trials without removing indexers,
+  changing keys or introducing unsupported concurrency options.
+- [ ] Include the final workload matrix, stop/success criteria, full-settings
+  merge/readback/rollback procedure and 4K-selection contract in the handover.
+- [ ] Validate fields/units and settings-save semantics against the selected stable
+  target's source rather than relying solely on the MatriX.143 audit, and usage
+  against the collector. No trial results, user decisions or live changes are
+  prerequisites; label candidates and capacity as unverified.
 
-### Task 11: Verify repository acceptance and record operational gates
+### Task 11: Run implementation acceptance checks
 
 **Files:**
-- Modify: this plan, `docs/parallel-playback-validation.md`
+- Modify: this plan to record repository check results
+- Modify: affected tests/configuration only if a check reveals an implementation issue
 
 - [ ] Run `node --test tests/*.test.cjs` and
   `npx --yes acorn@8.14.0 --ecma5 --silent svtlv/*.js app.min.js`.
-- [ ] Run `docker compose -f devops/docker-compose.yaml --env-file devops/.env.example config --quiet`
-  and validate release output in CI/rehearsal; check modified deployment and
-  measurement shell syntax. Run appropriate Go checks if backend code changed.
-- [ ] Verify all backlog requirements map to implemented tests/manual cases;
-  distinguish regressions fixed from incident hypotheses that remain unproven.
-- [ ] Record restore rehearsal, unchanged-endpoint/credential verification,
-  unchanged-service deployment rehearsal and real-device/performance results.
-  Mark unavailable external evidence as pending, not passed.
-- [ ] Require successful operational migration and stated capacity/cleanup checks
-  before claiming the whole initiative complete or removing the performance item.
+- [ ] Run `docker compose -f devops/docker-compose.yaml --env-file devops/.env.example config --quiet`,
+  validate the release transformation locally, and syntax-check changed shell.
+- [ ] Run applicable Go checks only if backend code changes; report actual check
+  coverage and any missing tooling honestly, without asking for a release/deploy.
+- [ ] Verify every agreed feature has its code/configuration/docs and automated
+  coverage, and all operational scenarios are documented in the final handover.
+- [ ] Record repository results separately from unperformed live acceptance.
+  Finish this task without production access, manual playback or owner input.
 
-### Task 12: Finalize documentation and close verified backlog items
+### Task 12: Finalize docs, remove resolved backlog items and archive the plan
 
 **Files:**
-- Modify: `backend/README.md`, `AGENTS.md` if deployment guidance changes
+- Modify: `backend/README.md`, `AGENTS.md`, `CLAUDE.md` where guidance changes
 - Modify: `docs/design/settings-sync-backend-design.md`
-- Modify: `docs/container-migration-inventory.md`, `docs/container-migration-runbook.md`,
-  `docs/parallel-playback-validation.md`
-- Delete: each `docs/backlog/` item only with its verified closing change
-- Move: this plan to `docs/plans/completed/` only after all required work/acceptance
+- Modify: the inventory, runbook and validation documents created above
+- Delete: resolved files from `docs/backlog/`
+- Move: this plan to `docs/plans/completed/`
 
-- [ ] Document service ownership, upgrade procedure, persistent config/secret
-  backups, ordinary deploy behavior, capacity limits and rollback retention.
-- [ ] Update membership/error/lifecycle behavior and version-specific tuning
-  guidance. Keep operational evidence sanitized and maintain links to private
-  production records without copying raw logs or secrets.
-- [ ] Validate links and command snippets and rerun checks affected by doc changes.
-  Replace links to deleted backlog files with closing-commit references when
-  archiving the completed plan.
-- [ ] At the end of implementation, delete every resolved item file from
-  `docs/backlog/` with `git rm` and verify no completed item remains. Include each
-  deletion with its closing change; do not merely mark the item resolved in prose.
-- [ ] Keep unresolved work visible and do not close the original device incident
-  solely on a wording fix; retain any item still awaiting required verification.
-- [ ] Move the plan only when repository and external acceptance are complete;
-  never auto-commit or deploy as a side effect of plan creation.
+- [ ] Publish final service/configuration/error/membership/lifecycle behavior and
+  all post-implementation usage instructions. Keep secrets/private logs outside Git.
+- [ ] Validate documentation links/snippets and update references to deleted
+  backlog files with closing-change references when available.
+- [ ] Delete every resolved backlog item with `git rm` and verify no completed
+  item remains. Do not merely mark resolved items in prose.
+- [ ] Keep any genuinely unresolved incident/capacity objective explicit with its
+  post-implementation follow-up; do not claim a live fix or measured capacity from
+  unit tests. Such follow-up cannot hold this implementation plan open.
+- [ ] Mark repository tasks complete, archive the plan and report implementation
+  results plus the final handover. Do not wait for release/deployment or perform
+  any owner-operated action to finish implementation.
 
-## Post-completion: external execution and acceptance
+## Evidence references
 
-These are operational actions outside repository editing. They require a planned
-idle/maintenance window and the actual production inventory. Implementation can
-prepare/rehearse them; it cannot infer their success from CI.
+These support the embedded findings; they are not dependencies on private
+production documents or additional owner actions.
 
-### Configuration migration sequence
+- The three existing backlog files record the earlier investigation and source
+  audit; implementation scope and required behaviors are restated above.
+- [MatriX.143 signal handling](https://github.com/YouROK/TorrServer/blob/5c812ec1abe4c8e0acee29d820f78205a8f0e7b7/server/cmd/preconfig_pos.go),
+  [shutdown API](https://github.com/YouROK/TorrServer/blob/5c812ec1abe4c8e0acee29d820f78205a8f0e7b7/server/web/api/shutdown.go),
+  [database-closing shutdown](https://github.com/YouROK/TorrServer/blob/5c812ec1abe4c8e0acee29d820f78205a8f0e7b7/server/torr/apihelper.go)
+  and [reader lifetime](https://github.com/YouROK/TorrServer/blob/5c812ec1abe4c8e0acee29d820f78205a8f0e7b7/server/torr/torrent.go).
+- [LinuxServer Jackett image documentation](https://docs.linuxserver.io/images/docker-jackett/)
+  and [Compose service reference](https://docs.docker.com/reference/compose-file/services/).
+- Verified stable releases: [TorrServer MatriX.150](https://github.com/YouROK/TorrServer/releases/tag/MatriX.150),
+  [Jackett v0.24.3030](https://github.com/Jackett/Jackett/releases/tag/v0.24.3030),
+  [LinuxServer image v0.24.3030-ls30](https://github.com/linuxserver/docker-jackett/releases/tag/v0.24.3030-ls30).
+- Target-version [container entrypoint](https://github.com/YouROK/TorrServer/blob/MatriX.150/docker-entrypoint.sh),
+  [settings units](https://github.com/YouROK/TorrServer/blob/MatriX.150/server/settings/btsets.go)
+  and [reader expiry](https://github.com/YouROK/TorrServer/blob/MatriX.150/server/torr/torrent.go).
 
-1. Reconfirm live versions, storage, owners, networks/consumers and old deployment
-   automation. Secure backups outside Git; verify a restore before touching old
-   containers. Prestage pinned images and copied/synthetic rehearsal data.
-2. Freeze deployments/config edits on the transferring services. At an agreed
-   idle window, stop the old writers and take the final consistent backup/copy.
-   TorrServer's current `TS_DONTKILL=1` ignores SIGTERM. Temporarily disable its
-   `unless-stopped` restart policy before the versioned API's `GET /shutdown`,
-   which closes the torrent client and BBolt database and exits. This GET is a
-   mutating operational action, not a read-only health probe. Verify the process
-   exited and did not restart; rehearse error/timeout handling instead of silently
-   accepting a SIGKILL as a graceful backup boundary. Gracefully stop Jackett too.
-   Preserve numeric ownership/modes and all databases/config/auth/indexer state;
-   do not regard copying live database files as a consistent backup.
-3. Prevent the old deployment definitions/jobs from recreating these services.
-   Remove only their stopped containers when names/ports conflict. Retain the
-   old definitions, images and private backups; preserve unrelated old services
-   and any external/shared network. Never use `down -v`.
-4. Start the new definitions against the adopted paths or verified copied data,
-   with exactly one writer. Verify unchanged endpoint routing from LAN/tailnet,
-   auth/API-key equality without disclosure, config/indexer/torrent-record
-   integrity, helper connectivity and other consumers. Test harmless health
-   first; any indexer/stream verification must be bounded and agreed.
-5. Observe idle stability and record the migration result before any tuning.
-   Runtime RAM caches and in-flight playback cannot be migrated; downtime is
-   measured, not promised as zero. Roll back if integrity/consumer checks fail.
-6. After acceptance, keep old data/images for the documented retention period.
-   Confirm the old stack's next deployment cannot recreate the transferred
-   services. Test an ordinary Lampa release without restarting them.
+## Post-implementation handover: all owner-operated actions
 
-Rollback stops the new writers, captures any post-cutover changes, restores the
-old definitions/version artifacts and either safely reuses compatible current
-data or restores/reconciles the private backup. Restore prior ownership/network
-contracts and verify endpoints/consumers. Do not run old/new writers together or
-erase new writes to make rollback appear successful.
+**This section starts after implementation has finished and the plan can already
+be archived. Nothing below is a prerequisite for completing Tasks 1–12.** The
+owner controls when to release, deploy, perform the initial cutover and run live
+checks. These actions are instructions for later execution, not agent tasks during
+implementation. No live capacity, migration or incident verification is claimed.
 
-### Bounded playback and search trials
+### Release, initial manual cutover and old-source cleanup
 
-Required matrix: idle; one 1080p stream; two and three distinct 1080p torrents;
-two/three readers of the same torrent; simultaneous preload; steady playback;
-seek/pause/resume; one viewer stopping/closing/timing out while others continue;
-all viewers stopping and cache cleanup; restart/reconnect; LAN/tailnet routes.
-Include three concurrent Jackett searches during playback with a fixed indexer
-set, distinguishing search latency/failure from streaming performance.
+1. Review the completed repository changes and release/deploy at the chosen time.
+   Keep the old definitions and image references available for rollback. This
+   deployment also upgrades both applications: take a consistent pre-upgrade
+   backup of full configuration/databases/credentials and account for any residual
+   writable state here, not during repository implementation. Check the delivered
+   target-version compatibility notes before starting the newer binaries.
+2. Stop the old TorrServer and Jackett containers and free their names/ports.
+   Account for `TS_DONTKILL=1`: the supported `GET /shutdown` closes TorrServer's
+   client/database and exits, but automatic restart must be accounted for. This
+   GET is mutating, not a health probe. Confirm the old writers have stopped.
+3. Deploy this repo's Compose stack against exactly the existing three binds.
+   No data import or copying is needed. Never run old and new writers against
+   the same writable configuration at once.
+4. Verify expected image/runtime versions, commands, ownership/mounts, saved
+   torrents/settings, Jackett indexers/API key, client LAN/tailnet endpoints and
+   internal `jackett:9117` Torznab connectivity. Keep private comparison values
+   out of logs. Check readiness and other known consumers.
+5. If verification fails, stop the new writers and preserve any post-upgrade
+   changes. Use the retained old definitions only with data known compatible with
+   that version, or restore/reconcile the pre-upgrade backup. Do not assume a
+   downgrade can safely use upgraded files or silently discard new writes.
+   Keep unrelated services and shared networks intact.
+6. Only after successful verification, remove obsolete old deployment sources
+   under `/opt` and retire their old deployment entry point. **Keep the active
+   `/opt/svtlvtv/jackett/config` bind**, `/var/lib/torrserver/config` and
+   `/var/lib/torrserver/cache`. Removing old sources must not remove live data.
 
-Also test single-viewer 4K with actual player/codec and bitrate recorded. Offer
-mixed/three-4K trials only if prior stages retain headroom and the owner wants
-them; inability to sustain that optional workload does not justify blocking 4K.
-Resolution alone is not a bandwidth specification: record sustained/peak media
-bitrates and actual ingress/egress capacity for every claimed result.
+The old source repository/automation and additional consumers were not established
+by the inventory. Any necessary production check of these belongs to this manual
+handover and does not reopen the implementation tasks.
 
-Proposed trial protocol: repeat startup/seek/cancellation cases three times per
-candidate, sustain the required three-viewer stage for at least 60 minutes, then
-observe cleanup for at least 10 minutes after every reader/poller stops. Use an
-isolated environment first. Do not deliberately replay the unsafe original
-three-torrent 2 GiB-per-hash profile on the production host.
+### Verify normal full-stack redeployment
 
-Before a live trial, agree numeric available-memory/PSI/swap/latency stop thresholds
-using the inventory and a safe baseline. Proposed quality gates: no OOM/restarts,
-no cross-viewer interruption, no sustained reclaim/swap collapse, all required
-neighbor services healthy, no avoidable buffering on adequately seeded content,
-and startup/seek latency no worse than 20% above the safe one-viewer reference.
-Record absolute latency and interruptions as well as ratios. Host headroom and
-process limits must be fixed before trials, not chosen after viewing results.
-Abort immediately on an OOM, failed neighbor health, severe sustained pressure,
-or playback regression; revert preserved full settings during an idle window.
+Perform a later normal deployment and confirm TorrServer and Jackett stop/start
+with the other services while their data, settings and credentials survive.
+Verify API/TorrServer/Jackett readiness and failed-startup reporting. Playback
+interruption during this deliberate deployment is expected.
 
-Validate bounded cleanup against the actual disconnect configuration and measured
-reader lifetime; lifetime counters/saved torrent records are not active caches.
-If process memory remains elevated, distinguish retained Go heap from live cache
-payload and allocator/page-cache effects before calling it a leak or a pass.
+If a separate container rehearsal is useful, use isolated explicit names, ports,
+networks and synthetic data paths: a new Compose project name does not isolate
+fixed `container_name` values. Use a compatible Linux/amd64 host or explicit
+emulation for the production pins on ARM.
 
-### Actual device warning verification
+### Live measurement and tuning
 
-Reproduce the owner's arrangement: one anonymous device and one signed-in device,
-with simultaneous playback. Capture the signed-in client's operation category,
-request result and timing alongside backend health/resource metrics. Verify
-refresh failures are described accurately and actual unsaved changes remain
-recoverable. Supplement with same-account/different-account and guest-pair tests.
-Check actual app/plugin revisions and platform/player behavior; do not infer
-cross-device notification delivery because two clients show similar local text.
+Run the delivered collector and annotate viewer start/seek/stop events, bitrate,
+player/platform and network route. Correlate CPU/memory/swap/pressure with
+playback and neighboring-service health. Do not deliberately replay the unsafe
+three-torrent 2 GiB-per-hash profile on production merely to obtain a baseline.
 
-## References
+| Setting | Recorded baseline | Trial |
+| --- | --- | --- |
+| `CacheSize` | `2147483648` bytes | `536870912` bytes, 512 MiB per distinct torrent |
+| `PreloadCache` | `1` percent | First retain `1` for the cache-only trial; then test `4` separately |
+| `ReaderReadAHead` | `95` | Retain initially; optional later `80` redistributes ahead/behind rather than reducing total cache |
+| `ConnectionsLimit` | `25` | Retain initially; optional later `16` may trade throughput for lower peer work |
+| `UseDisk` / `ResponsiveMode` | `false` / `true` | Retain initially |
+| `TorrentDisconnectTimeout` | `30` seconds | Retain initially; verify reader/poller cleanup |
+| rate limits / upload | unlimited / enabled | Preserve initially; no blanket restriction on 4K choice |
 
-- Existing backlog records contain the dated MatriX.143 source audit and November
-  6–7 production observations; revalidate their assumptions before changing runtime
-  settings.
-- [TorrServer official repository](https://github.com/YouROK/TorrServer): current
-  container guidance is version-sensitive; do not substitute latest defaults for
-  the installed historical build.
-- [LinuxServer Jackett image documentation](https://docs.linuxserver.io/images/docker-jackett/):
-  image-specific persistence/UID/GID/update behavior, applicable only if production
-  actually uses this image family.
-- [Docker Compose service reference](https://docs.docker.com/reference/compose-file/services/):
-  validate resource controls against the real server Compose/Engine versions.
-- Versioned MatriX.143 [signal handling](https://github.com/YouROK/TorrServer/blob/5c812ec1abe4c8e0acee29d820f78205a8f0e7b7/server/cmd/preconfig_pos.go),
-  [graceful shutdown API](https://github.com/YouROK/TorrServer/blob/5c812ec1abe4c8e0acee29d820f78205a8f0e7b7/server/web/api/shutdown.go)
-  and [database-closing shutdown](https://github.com/YouROK/TorrServer/blob/5c812ec1abe4c8e0acee29d820f78205a8f0e7b7/server/torr/apihelper.go):
-  checked during planning; preserve the distinction between process signals and
-  idle-reader expiry.
+These are trials, not proven defaults. Three 512 MiB caches total 1.5 GiB nominal
+payload, not a process RSS limit. Measure overhead and host-neighbor headroom
+before choosing memory/swap/CPU/runtime boundaries. A cgroup OOM still means
+playback failed. Do not assume Swarm-only limits constrain standalone Compose.
+
+Apply candidates one variable at a time during an idle window using the selected
+target's documented settings API. The earlier MatriX.143 audit showed full-object
+replacement and torrent/client reset; use the delivered target-version notes for
+the upgraded build rather than assuming the old contract unchanged. Merge the
+candidate into a preserved full object, verify readback, and keep the complete
+rollback snapshot. Never send a sparse replacement or assume file edits hot-reload.
+
+Measure Jackett searches separately from steady streaming: concurrent searches,
+indexer fan-out, latency, retries and resource usage. Preserve all configured
+indexers/keys/cookies and consumers. Introduce no unsupported concurrency flag,
+proxy/helper, disk-cache conversion, aggressive GC or extra server instance merely
+to improve a benchmark. Keep useful account sync and local player/link selection.
+
+### Playback and viewer-isolation acceptance
+
+Test idle, one 1080p stream, two/three distinct 1080p torrents, and two/three
+readers of one torrent. Include simultaneous preload, steady playback, seeking,
+pause/resume, discovery timeout, closing one viewer's dialog, one viewer stopping
+while the others continue, and cleanup after all viewers stop. Exercise LAN and
+tailnet routes plus concurrent Jackett searches with a fixed indexer set.
+
+Verify single-viewer 4K with the actual codec/player and bitrate recorded. 4K
+selection stays unrestricted. Mixed or three-4K trials are optional; resolution
+alone is not a bandwidth specification or a guaranteed capacity claim.
+
+Repeat startup/seek/cancellation cases three times per candidate. Sustain the
+required three-viewer workload for at least 60 minutes, then observe cleanup for
+at least 10 minutes after all readers and pollers stop. Do not poll torrent
+status/cache endpoints to measure idle expiry when those calls extend lifetime.
+
+Set numeric headroom/pressure/latency stop thresholds using the safe baseline
+before the live trial. Require no unexpected OOM/restarts, cross-viewer
+interruption, severe sustained reclaim/swap pressure or neighboring-service
+failure. Record buffering and absolute startup/seek latency; the proposed latency
+gate is no more than 20% worse than the safe one-viewer reference under comparable
+content/network conditions. Abort and revert on pressure or playback regression.
+Planned full-stack deployments run outside these capacity trials.
+
+Check My Torrents across both configured URLs, account/guest isolation, partial
+removal failure and local link/player selection. Verify that cancel/close/timeout
+on one same-hash viewer does not drop another viewer's active stream. Distinguish
+live cache from saved records and retained Go heap before judging cleanup.
+
+### Actual account-warning verification
+
+Use the reported arrangement: one anonymous client and one signed-in client,
+with simultaneous playback. Capture the signed-in client's sync phase, request
+result/timing and backend health/resource context without tokens or private data.
+Verify accurate read/save error messages and recoverable dirty edits. Supplement
+with same-account, different-account and guest-pair cases. Record actual app/plugin
+versions; similar local messages are not proof of cross-device delivery.
+
+### Record results, promote settings and close remaining follow-up
+
+Record actual baseline/candidate values, measurements, coverage, failures,
+platforms/bitrates, limits and rollback decisions in
+`docs/parallel-playback-validation.md`. Keep or revert settings using those
+results. Later changes to durable resource limits/runtime defaults are follow-up
+configuration changes with their own checks, not unfinished implementation tasks.
+
+Close/delete any remaining incident/capacity backlog item only when its outstanding
+work is resolved. Do not claim a reproduced cause, successful migration or proven
+three-viewer capacity from automated tests alone. Release/deployment, trial results
+and later backlog closure remain separate from the already completed implementation.
