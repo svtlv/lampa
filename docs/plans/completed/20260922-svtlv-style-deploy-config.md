@@ -74,7 +74,7 @@
   - Docs describing the old mechanics:
     - root `README.md`: local override, `LAMPA_API_IMAGE`, `api_enabled`/`api_image_tag`;
     - `backend/README.md`: env table;
-    - `docs/settings-sync-backend-design.md`: `LAMPA_API_*` env config, and credential lists
+    - `docs/design/settings-sync-backend-design.md`: `LAMPA_API_*` env config, and credential lists
       that name only TorrServer/Jackett;
     - `CLAUDE.md` and `AGENTS.md`.
 - **Svtlv conventions**
@@ -476,7 +476,7 @@
   - `LAMPA_API_LISTEN`, `_HEALTH_LISTEN`, `_DB_DSN`, `_MAX_BODY_BYTES`;
   - `LAMPA_API_IMAGE`, `api_enabled`, `api_image_tag`, `docker-compose.local.yaml`.
   - clean in Go sources, `devops/` and `.github/`; the remaining hits are only in
-    `backend/README.md`, root `README.md`, `docs/settings-sync-backend-design.md`, `CLAUDE.md`
+    `backend/README.md`, root `README.md`, `docs/design/settings-sync-backend-design.md`, `CLAUDE.md`
     and `AGENTS.md`, which Task 8 rewrites (plus gitignored stale binaries in `backend/.bin/`)
 - [x] published host ports 8092, 5800 and loopback 5434 are absent from Svtlv's list (Svtlv
       publishes 80, 443, 4317, 5100–5400, 5433, 8080, 9000, 9092, 9094, 9096, 18888, 18891 and
@@ -496,7 +496,7 @@
 - [x] root `README.md`: file table (no local override), local compose run with `.env.example`,
       deploy section (single `environment` input, required secrets, no rollback inputs,
       rollback = revert and redeploy)
-- [x] `docs/settings-sync-backend-design.md`:
+- [x] `docs/design/settings-sync-backend-design.md`:
   - config section → appsettings + placeholders, ports;
   - credential wording → TorrServer, Jackett **and Prowlarr**, sealed set mirrors the UI's
     secret inputs;

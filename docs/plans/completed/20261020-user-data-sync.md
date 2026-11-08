@@ -398,7 +398,7 @@ only. Nothing is defined on non-HTTP(S) origins (`^https?:$` guard).
 - Modify: `svtlv/storage-scope.json`
 - Modify: `backend/pkg/storage/crypto_test.go` (scope names, Plan 4 assertions)
 - Modify: `tests/ownership-docs.test.cjs`
-- Modify: `docs/settings-sync-backend-design.md` (§10.3 table only, so `checkScopes` keeps passing)
+- Modify: `docs/design/settings-sync-backend-design.md` (§10.3 table only, so `checkScopes` keeps passing)
 
 - [x] ⚠️ final user confirmation (skipped - not automatable; requested with no response during this iteration); applied the proposed must-sync, best-effort and encrypt lists above
 - [x] add the `user_optional` scope; move best-effort keys into it; move `file_view_*` to `external` (unless the user decides otherwise); add the top-level `encrypt` list; update `_policy` and the key notes
@@ -502,7 +502,7 @@ are unchanged from `4c76cb6` (before Task 1). Real browser/TV checks remain list
 Post-Completion.
 
 ### Task 10: [Final] Update documentation
-- [x] `docs/settings-sync-backend-design.md`: §4 any-JSON document v2, `encrypt`, in-place `$sealed`, `etag` column, dropped `encrypted_connections`, limits; §6/§7 boot apply, fingerprints, ETag polling, live apply (also during playback), save with `If-Match`; §8 precondition, `ETag`/`304`/`412`, PUT 204 and the v2 example; §5.3.1 Keycloak calls per poll/save; §10 lists `account-sync.js` (no `account-sync.css`) and how it reads the whitelist; §12 secrets chosen by `encrypt`; §16 resolved (clear on logout); Status → Implemented
+- [x] `docs/design/settings-sync-backend-design.md`: §4 any-JSON document v2, `encrypt`, in-place `$sealed`, `etag` column, dropped `encrypted_connections`, limits; §6/§7 boot apply, fingerprints, ETag polling, live apply (also during playback), save with `If-Match`; §8 precondition, `ETag`/`304`/`412`, PUT 204 and the v2 example; §5.3.1 Keycloak calls per poll/save; §10 lists `account-sync.js` (no `account-sync.css`) and how it reads the whitelist; §12 secrets chosen by `encrypt`; §16 resolved (clear on logout); Status → Implemented
 - [x] §14 Plan 4 deviations: any-JSON document instead of sections; no feature flag; `file_view_*` not synced; §6.3 read-back GET dropped; key-level last-wins with `If-Match`; CUB writers not coordinated (`favorite`/`file_view` unused while CUB sync is active); "Clear cache" and CUB backup restore undone by the next boot GET; sign-in/out notices disappear in the reload; `app.min.js` starts up to 3s later on signed-in boots
 - [x] keep `tests/ownership-docs.test.cjs` passing after doc edits
 - [x] `CLAUDE.md`: Svtlv add-ons section gets `account-sync.js`, the seam order, the marker and base keys, and "to sync a key, add it to `user`/`user_optional` in `storage-scope.json`; to encrypt it, also add it to `encrypt`"; lampa-api section replaces the `SensitiveSettings`/`TestSensitiveSettings_matchUI` text with the any-JSON v2 document, in-place sealing and ETag

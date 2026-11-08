@@ -1,7 +1,7 @@
 # Plan 3: Storage Classification and TorrServer Ownership
 
 ## Overview
-- Plan 3 of `docs/settings-sync-backend-design.md` (§14), covering §10.3 (storage ownership audit) and §10.4 (TorrServer data ownership).
+- Plan 3 of `docs/design/settings-sync-backend-design.md` (§14), covering §10.3 (storage ownership audit) and §10.4 (TorrServer data ownership).
 - **Storage classification**: every storage key the current bundle uses gets an explicit scope in one machine-readable file, `svtlv/storage-scope.json`. A Go drift test fails CI when an upstream pull adds an unclassified key, the same way `TestSensitiveSettings_matchUI` already guards settings inputs. Plan 4's sync adapter reads this file as its allowlist.
 - **One TorrServer link**: remove the built-in second URL input and link selector. Migrate the currently active URL to `torrserver_url`; all TorrServer requests then use only that field.
 - **TorrServer ownership**: Lampa keeps talking to the configured TorrServer directly. A new `svtlv/` add-on wraps the public `Lampa.Torserver` object so that, for a signed-in user, My Torrents shows only torrents that user added on that TorrServer. Ownership rows `(user, TorrServer, torrent hash)` live in `lampa-api` behind three small authenticated routes.
@@ -473,7 +473,7 @@ Task 9 validation and acceptance audit notes:
 
 ### Task 10: [Final] Update documentation
 - [x] `backend/README.md`: ownership routes in "API", the new table, the access-log redaction, and in "Operational caveats" the view-separation caveat, device-local guest membership, the one-link migration and the Android external-client limitation
-- [x] `docs/settings-sync-backend-design.md`:
+- [x] `docs/design/settings-sync-backend-design.md`:
   - §4 (new table) and §8 (routes);
   - the §10.3 table aligned with `storage-scope.json` (sole `torrserver_url` and credentials → user connection; legacy link keys and backup → device-only; the Plan 4 rule from decision 6);
   - §10.4 and §15 for decisions 2, 4, 5 and 9, guest device-local membership, session readiness, and the Android limitation;

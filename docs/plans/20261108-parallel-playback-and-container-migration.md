@@ -487,7 +487,7 @@ hot-reload. Keep runtime cache/settings out of Git except sanitized profiles.
 **Files:**
 - Modify: `svtlv/torrserver-ownership.js`, `tests/torrserver-ownership.test.cjs`
 - Modify: `tests/torrserver-one-link.test.cjs` where its existing expectations change
-- Modify: `backend/README.md`, `docs/settings-sync-backend-design.md`
+- Modify: `backend/README.md`, `docs/design/settings-sync-backend-design.md`
 - Modify: `tests/ownership-docs.test.cjs` only for changed documented contracts
 
 - [ ] Factor the existing normalization/digest into reusable endpoint-ID handling;
@@ -609,7 +609,7 @@ hot-reload. Keep runtime cache/settings out of Git except sanitized profiles.
 
 **Files:**
 - Modify: `backend/README.md`, `AGENTS.md` if deployment guidance changes
-- Modify: `docs/settings-sync-backend-design.md`
+- Modify: `docs/design/settings-sync-backend-design.md`
 - Modify: `docs/container-migration-inventory.md`, `docs/container-migration-runbook.md`,
   `docs/parallel-playback-validation.md`
 - Delete: each `docs/backlog/` item only with its verified closing change

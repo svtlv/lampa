@@ -1,7 +1,7 @@
 # Plan 2: Keycloak Authentication and the Account Add-on
 
 ## Overview
-- Implements roadmap **Plan 2** from `docs/settings-sync-backend-design.md` §14, with the
+- Implements roadmap **Plan 2** from `docs/design/settings-sync-backend-design.md` §14, with the
   decisions recorded in §5.1–§5.6, §8, §10.5 and §12 of that document.
 - Backend: replace `api.DenyAll` with real Keycloak authentication in `lampa-api` — the OAuth 2.0
   Device Authorization Grant for TVs, Authorization Code + PKCE for phones and computers,
@@ -557,7 +557,7 @@
 - Modify: `backend/README.md`
 - Modify: `CLAUDE.md`
 - Modify: `AGENTS.md`
-- Modify: `docs/settings-sync-backend-design.md`
+- Modify: `docs/design/settings-sync-backend-design.md`
 
 - [x] `backend/README.md`: auth routes, config keys and placeholders, stateless cookie sessions, per-request Keycloak revalidation (fail-open) and the accepted costs, the Keycloak realm prerequisites, 401 vs 503, local testing with a fake or local Keycloak
 - [x] `CLAUDE.md` and its mirror `AGENTS.md`: remove "user-data routes answer 401 until Plan 2" and the published API port; update "placeholders resolved only in `Database.Password` and `DataKey`"; document the `svtlv/` add-on rules (ES5 gate, marked `index.html` block, no `app.min.js` edits) and that `svtlv/` is a top-level directory that intentionally ships in `lampa-web` (the `.dockerignore` rule); the `/api` proxy

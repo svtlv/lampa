@@ -1,7 +1,7 @@
 # Plan 1: Build and Deploy the Go Persistence Service (lampa-api)
 
 ## Overview
-- Implements roadmap **Plan 1** from `docs/settings-sync-backend-design.md` §14: an isolated Go
+- Implements roadmap **Plan 1** from `docs/design/settings-sync-backend-design.md` §14: an isolated Go
   service (`backend/`) that stores one JSONB document per user in PostgreSQL, with read /
   replace / delete, validation, encryption of connection credentials, and the Svtlv two-tier
   health contract (`:8081/health`, `:8081/health/critical`).
@@ -693,7 +693,7 @@ feature = `api_enabled: false` (design §13: returns Lampa to anonymous, local-o
 - [x] update `CLAUDE.md`: repo now contains a Go module under `backend/` (build/test/lint in
       WSL, testcontainers needs Docker), the `.dockerignore` rule for new top-level dirs, and the
       workflow inputs for disable/rollback
-- [x] update `docs/settings-sync-backend-design.md`: record deviations (keycloak advisory check
+- [x] update `docs/design/settings-sync-backend-design.md`: record deviations (keycloak advisory check
       and `/api` proxy deferred to Plan 2; Postgres 18.6 data path; rollback by image tag)
 - [x] move this plan to `docs/plans/completed/` **only after** the Post-Completion deploy,
       monitoring registration and rollback drill have succeeded; then mark Plan 1 done in the

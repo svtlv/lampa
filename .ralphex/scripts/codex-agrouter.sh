@@ -10,7 +10,7 @@ docs=(
   --doc="$root/AGENTS.md"
   --doc="$root/README.md"
   --doc="$root/backend/README.md"
-  --doc="$root/docs/settings-sync-backend-design.md"
+  --doc="$root/docs/design/settings-sync-backend-design.md"
 )
 
 if [[ "${1:-}" == exec ]]; then

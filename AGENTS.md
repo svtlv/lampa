@@ -95,7 +95,7 @@ The upstream app has no server of its own. It talks to CUB (`Manifest.cub_site` 
 
 ### lampa-api (`backend/`)
 
-A fork-only Go module (`go 1.26`, vendored) that signs users in with the Svtlv Keycloak realm (stateless sealed session cookies, `pkg/auth`) and stores one user-data document per user in PostgreSQL; design in `docs/settings-sync-backend-design.md`, usage in `backend/README.md`. It follows the Ralphex checkout's style (lowercase comments, `pkg/<responsibility>`, moq into `mocks/`, one `_test.go` per source file, stdlib `log` with `[INFO]`/`[WARN]` prefixes).
+A fork-only Go module (`go 1.26`, vendored) that signs users in with the Svtlv Keycloak realm (stateless sealed session cookies, `pkg/auth`) and stores one user-data document per user in PostgreSQL; design in `docs/design/settings-sync-backend-design.md`, usage in `backend/README.md`. It follows the Ralphex checkout's style (lowercase comments, `pkg/<responsibility>`, moq into `mocks/`, one `_test.go` per source file, stdlib `log` with `[INFO]`/`[WARN]` prefixes).
 
 - Run `make test` / `make race` / `make lint` / `make fmt` **inside WSL Ubuntu** from `backend/` — the Windows Go has no cgo, so `-race` fails there.
 - DB tests use testcontainers (`postgres:18.6`) and need Docker; they skip without it unless `LAMPA_API_REQUIRE_DOCKER=1` (CI sets it).
@@ -112,7 +112,7 @@ A fork-only Go module (`go 1.26`, vendored) that signs users in with the Svtlv K
 
 ### Svtlv add-ons (`svtlv/`)
 
-Fork-only frontend features live in `svtlv/` as plain ES5 files. `account.js` + `account.css` provide the Account settings entry, header avatar (keeping CUB reachable), and Keycloak sign-in / sign-out. `account-sync.js` applies account data before boot, polls for remote changes and saves local edits; `storage-scope.json` is its runtime sync and encryption policy. Design: `docs/settings-sync-backend-design.md` §10.
+Fork-only frontend features live in `svtlv/` as plain ES5 files. `account.js` + `account.css` provide the Account settings entry, header avatar (keeping CUB reachable), and Keycloak sign-in / sign-out. `account-sync.js` applies account data before boot, polls for remote changes and saves local edits; `storage-scope.json` is its runtime sync and encryption policy. Design: `docs/design/settings-sync-backend-design.md` §10.
 
 - **Never edit `app.min.js`, `css/app.css` or `lang/*` for them.** An add-on uses only the public `window.Lampa` API, like a third-party plugin, so upstream pulls do not conflict with it.
 - The loader seam is the marked `<!-- svtlv:begin -->` … `<!-- svtlv:end -->` block at the end of `index.html`'s `<body>`. It appends `account.css`, loads `account.js` without waiting, then `torrserver-ownership.js` → `account-sync.js` → `svtlv_sync_boot(svtlvStart)` → `startLampa()`. Missing/throwing sync scripts advance startup without the `.no-network` overlay. The hook completes immediately without an account marker and waits at most 3 seconds with one. Preserve that block when taking upstream `index.html`.

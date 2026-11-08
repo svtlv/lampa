@@ -1086,7 +1086,7 @@ Either URL or local selector changes refresh My Torrents, including discarding
 inactive screens. Pending list/add/playback results retain their captured account,
 generation and effective-server checks; stale results cannot affect the other
 server's membership. Shared alias identity is deferred to
-[`docs/backlog/share-torrents-between-torrserver-links.md`](backlog/share-torrents-between-torrserver-links.md).
+[`docs/backlog/share-torrents-between-torrserver-links.md`](../backlog/share-torrents-between-torrserver-links.md).
 
 | Operation | Signed-in account | Anonymous guest |
 | --- | --- | --- |

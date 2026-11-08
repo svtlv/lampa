@@ -5,7 +5,7 @@ const fs = require('node:fs');
 const path = require('node:path');
 const {test} = require('node:test');
 const read = name => fs.readFileSync(path.join(__dirname, '..', name), 'utf8');
-const documents = ['backend/README.md', 'docs/settings-sync-backend-design.md'];
+const documents = ['backend/README.md', 'docs/design/settings-sync-backend-design.md'];
 
 function routesIn(document) {
   return [...document.matchAll(/\| `(GET|PUT|DELETE) (\/api\/v1\/torrservers\/[^`]+)` \|/g)]

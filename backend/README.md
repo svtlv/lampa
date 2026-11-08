@@ -1,7 +1,7 @@
 # lampa-api
 
 Go service for Lampa accounts, user data and TorrServer membership (Plans 1–4 of
-[`docs/settings-sync-backend-design.md`](../docs/settings-sync-backend-design.md)). It signs
+[`docs/design/settings-sync-backend-design.md`](../docs/design/settings-sync-backend-design.md)). It signs
 users in with the Svtlv Keycloak realm, keeps their session in a sealed cookie, stores one
 JSONB document per user in PostgreSQL, seals client-selected values with AES-256-GCM,
 records per-user torrent membership, and exposes the Svtlv two-tier health contract.
