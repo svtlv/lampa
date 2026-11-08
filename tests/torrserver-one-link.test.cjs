@@ -7,6 +7,14 @@ const path = require('node:path');
 const vm = require('node:vm');
 const {test} = require('node:test');
 const bundle = fs.readFileSync(path.join(__dirname, '../app.min.js'), 'utf8');
+const storageExport = bundle.match(/  var Storage = \{([\s\S]*?)\n  \};/);
+const storageListener = storageExport[1].match(/\blistener: ([\w$]+)/)[1];
+const storageStart = bundle.lastIndexOf('\n  var ' + storageListener + ' = ', storageExport.index);
+const storageModule = bundle.slice(storageStart, storageExport.index + storageExport[0].length);
+const storageSubscribe = storageModule.match(/var [\w$]+ = ([\w$]+)\(\);/)[1];
+const torrserverExport = bundle.match(/  var Torserver = \{([\s\S]*?)\n  \};/)[1];
+const torrserverURL = torrserverExport.match(/\burl: ([\w$]+)/)[1];
+const torrserverNetwork = source('my').match(/([\w$]+)\.silent\(/)[1];
 
 function source(name, indent = '  ') {
   const declaration = indent === '  ' ? '\n' + indent + 'function ' + name + '(' : '\n' + indent + name + ': function ' + name + '(';
@@ -32,7 +40,8 @@ function device(values = {}, options = {}) {
       const failed = options.fail && options.fail(key, writes.length);
       if (failed === 'throw') throw new Error('storage full');
       if (failed !== 'silent') items[key] = String(value);
-    }
+    },
+    removeItem(key) { delete items[key]; }
   };
   const context = vm.createContext({
     window: {localStorage, location: {protocol: options.protocol || 'https:'}},
@@ -42,17 +51,23 @@ function device(values = {}, options = {}) {
     Base64: {encode: text => Buffer.from(text).toString('base64')},
     values: {}, defaults: {torrserver_auth: false, torrserver_preload: false, torrserver_gts: false}
   });
-  vm.runInContext(source('get$1') + source('checkEmptyUrl') + source('select') + source('field$1'), context);
+  // Include Storage's private state/helpers and finish its reserve-loading phase.
+  context[storageSubscribe] = () => ({send() {}});
+  context.Cache = {getData: () => ({then(next) { next([]); return {catch() {}}; }})};
+  vm.runInContext(storageModule, context);
+  context.reserve = options.reserve || {};
+  context.Storage.task(() => {});
+  vm.runInContext(source('checkEmptyUrl') + source('select') + source('field$1'), context);
   for (const registration of bundle.matchAll(/  select\('torrserver_[^']+',[\s\S]*?\);/g)) {
     vm.runInContext(registration[0], context);
   }
   context.Storage = {
-    get: context.get$1,
+    get: context.Storage.get,
     field: context.field$1,
     value: key => localStorage.getItem(key) || ''
   };
   context.Utils$1 = {checkEmptyUrl: context.checkEmptyUrl};
-  vm.runInContext(source('ip') + source('url$5'), context);
+  vm.runInContext(source('ip') + source(torrserverURL), context);
   function set(key, value) {
     localStorage.setItem(key, value);
     delete context.readed[key];
@@ -101,7 +116,7 @@ for (const selection of [undefined, '', 'one', 'two', 'invalid']) {
       test('endpoint selection and fallback: ' + label, () => {
         const d = device(values);
         assert.equal(d.context.ip(), effective);
-        assert.equal(d.context.url$5(), effective);
+        assert.equal(d.context[torrserverURL](), effective);
         assert.deepEqual(d.writes, []);
         assert.deepEqual(d.items, values, 'routing must not swap or rewrite either URL');
       });
@@ -134,7 +149,7 @@ for (const selection of [undefined, '', 'one', 'two', 'invalid']) {
         const d = device(values);
         const calls = [];
         d.context.clear$e = () => {};
-        d.context.network$b = {silent: (url, done, fail, body) => {
+        d.context[torrserverNetwork] = {silent: (url, done, fail, body) => {
           calls.push([url, JSON.parse(body)]); done([{hash: 'hash'}]);
         }};
         d.context.gstWork = () => false;
@@ -160,7 +175,7 @@ for (const selection of ['one', 'two']) {
         const key = selection === 'two' ? 'torrserver_url_two' : 'torrserver_url';
         const d = device({...endpoints, [key]: url, torrserver_use_link: selection}, {protocol});
         assert.equal(d.context.ip(), url);
-        assert.equal(d.context.url$5(), url.includes('://') ? url : protocol + '//' + url);
+        assert.equal(d.context[torrserverURL](), url.includes('://') ? url : protocol + '//' + url);
       });
     }
   }
@@ -187,7 +202,7 @@ function settingsDevice(values, options) {
   };
   d.context.Settings = {listener: {follow: (name, callback) => settingsHooks.push(callback)}};
   d.context.Storage.listener = {follow: (name, callback) => changes.push(callback)};
-  d.context.Torserver = {ip: d.context.ip, url: d.context.url$5};
+  d.context.Torserver = {ip: d.context.ip, url: d.context[torrserverURL], gstExist: () => true};
   d.context.Lang = {translate: key => key};
   d.context.Platform = {is: () => false};
   d.context.start$2 = params => speeds.push({...params});
@@ -254,7 +269,7 @@ test('search source reacts to both URLs, the selector and parser toggle', () => 
   d.context.Storage.listener = {follow: (name, callback) => hooks.push(callback)};
   d.context.network$2 = {clear: () => {}};
   d.context.Platform = {is: () => false};
-  d.context.Torserver = {url: d.context.url$5};
+  d.context.Torserver = {url: d.context[torrserverURL]};
   d.context.Lang = {translate: key => key};
   d.context.Search = {addSource: value => added.push(value), removeSource: value => removed.push(value)};
   vm.runInContext(source('init$x'), d.context);

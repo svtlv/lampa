@@ -15,6 +15,12 @@ function upstreamStorageMethod(method, module = 'Storage') {
   const end = bundle.indexOf('\n  }', start) + 4;
   return '(' + bundle.slice(start, end) + ')';
 }
+// Keep Storage's private state and helpers together when upstream changes them.
+const storageExport = bundle.match(/  var Storage = \{([\s\S]*?)\n  \};/);
+const storageListener = storageExport[1].match(/\blistener: ([\w$]+)/)[1];
+const storageStart = bundle.lastIndexOf('\n  var ' + storageListener + ' = ', storageExport.index);
+const storageModule = bundle.slice(storageStart, storageExport.index + storageExport[0].length);
+const storageSubscribe = storageModule.match(/var [\w$]+ = ([\w$]+)\(\);/)[1];
 const realScope = JSON.parse(fs.readFileSync(path.join(__dirname, '../svtlv/storage-scope.json'), 'utf8'));
 const BASE = 'svtlv_sync_base', USER = 'svtlv_sync_user';
 const REVISION = 'svtlv_sync_revision';
@@ -99,30 +105,41 @@ function page(options = {}) {
     }
   };
   const Lampa = window.Lampa;
+  Object.defineProperty(window, 'localStorage', {
+    get() { if (faults.property) throw new Error('localStorage getter'); return store; }
+  });
   if (options.upstreamStorage) {
-    const upstream = vm.createContext({window, readed: memory, reserve: options.reserve || {},
-      Storage: Lampa.Storage, values: {}, defaults: {}, Params: {},
+    const upstream = vm.createContext({window, values: {}, defaults: {}, Params: {},
       Arrays: {isObject: value => value !== null && typeof value === 'object' && !Array.isArray(value),
         isArray: Array.isArray},
-      listener: {send(name, event) { for (const fn of storageListeners[name] || []) fn(event); }},
-      Cache: {rewriteData() { return Promise.resolve(); }}, console: {log() {}}
+      [storageSubscribe]: () => Lampa.Storage.listener,
+      Cache: {
+        // page() represents a device whose IndexedDB reserve has finished loading.
+        getData() { return {then(next) { next([]); return {catch() {}}; }}; },
+        rewriteData() { return Promise.resolve(); },
+        deleteData() { return Promise.resolve(); }
+      }, console: {log() {}}
     });
-    Lampa.Storage.get = vm.runInContext(upstreamStorageMethod('get'), upstream);
+    Lampa.Storage.listener.send = function (name, event) {
+      for (const fn of storageListeners[name] || []) fn(event);
+    };
+    vm.runInContext(storageModule, upstream);
+    upstream.readed = memory;
+    upstream.reserve = options.reserve || {};
+    upstream.Storage.task(() => {});
+    Lampa.Storage.get = upstream.Storage.get;
     // Use the actual selector registration and public field methods for defaults.
     upstream.select = vm.runInContext(upstreamStorageMethod('select', 'Params'), upstream);
     vm.runInContext(bundle.match(/  select\('torrserver_use_link',[\s\S]*?\);/)[0], upstream);
     upstream.Params.field = vm.runInContext(upstreamStorageMethod('field', 'Params'), upstream);
-    Lampa.Storage.field = vm.runInContext(upstreamStorageMethod('field'), upstream);
-    const set = vm.runInContext(upstreamStorageMethod('set'), upstream);
+    Lampa.Storage.field = upstream.Storage.field;
+    const set = upstream.Storage.set;
     Lampa.Storage.set = function (key, value, nolisten, callerror) {
       storageWrites.push({key, value});
       return set(key, value, nolisten, callerror);
     };
   }
   if (options.preboot) delete window.Lampa;
-  Object.defineProperty(window, 'localStorage', {
-    get() { if (faults.property) throw new Error('localStorage getter'); return store; }
-  });
   function $(target) {
     assert.ok(target === window || target === document);
     const handlers = target === window ? windowEvents : documentEvents;
@@ -1774,11 +1791,12 @@ test('logout, identity changes, reload and storage failure cancel polling and di
   }
 });
 
-test('live quota failures disable sync equally for settings, history and progress', () => {
+test('live quota failures disable sync equally for settings, history and progress', async () => {
   for (const key of ['language', 'file_view', 'search_history']) {
     const p = pollingPage({language: 'en', [key]: 'old'}, {upstreamStorage: true});
     p.faults.quota = key; p.tick(60000);
     p.requests.at(-1).success(documentV2({[key]: 'new', favorite: '{}'}));
+    await Promise.resolve(); // IndexedDB must commit before upstream removes the old raw value.
     assert.equal(p.items[key], undefined, 'upstream moves quota-failed writes out of localStorage');
     assert.equal(JSON.parse(p.items[BASE])[key], p.core.fp('old'));
     assert.equal(p.core.disabled(), true); assert.equal(p.core.accountState().uploads, false);
@@ -2043,12 +2061,13 @@ for (const previous of ['guest', 'Bob']) for (const secondary of [false, true]) 
 }
 
 for (const key of ['torrserver_url', 'torrserver_url_two']) {
-  test('two links: failed live URL persistence disables uploads and retains cleanup ownership: ' + key, () => {
+  test('two links: failed live URL persistence disables uploads and retains cleanup ownership: ' + key, async () => {
     const server = sharedDocument(torrserverConnection);
     const p = acceptanceDevice(server, {items: {torrserver_use_link: 'two'}});
     p.faults.quota = key;
     p.tick(60000);
     p.requests.at(-1).success(documentV2({...torrserverConnection, [key]: 'http://new-server'}), 200, '"new"');
+    await Promise.resolve();
     assert.equal(p.items[key], undefined, 'upstream quota fallback removes the raw item');
     assert.equal(p.window.Lampa.Storage.get(key), 'http://new-server', 'the incoming value remains in memory');
     assert.equal(p.items[USER], 'Alice');
@@ -2428,13 +2447,15 @@ test('a sibling quota removal preserves reserve data for recovery after sync sto
   assert.deepEqual(restarted.notices, []);
 });
 
-test('upstream quota fallback never uploads a synced deletion tombstone', () => {
+test('upstream quota fallback never uploads a synced deletion tombstone', async () => {
   for (const key of ['favorite', 'mine_reactions', 'file_view', 'search_history']) {
     const p = savingPage(undefined, {hidden: true, upstreamStorage: true});
     p.faults.quota = key;
     p.window.Lampa.Storage.set(key, {book: [1, 2]});
+    await Promise.resolve();
     assert.equal(p.items[key], undefined);
     assert.deepEqual(clean(p.window.Lampa.Storage.get(key)), {book: [1, 2]});
+    p.visibility(true); // Inspect the value after the asynchronous quota fallback has completed.
     p.tick(2000);
     assert.equal(p.core.disabled(), true);
     assert.equal(p.core.accountState().uploads, false);
@@ -2492,7 +2513,7 @@ test('first login disables uploads if synced reserve values still cannot be pers
   }
 });
 
-test('disabled sync still clears account data on logout, expiry or account replacement', () => {
+test('disabled sync still clears account data on logout, expiry or account replacement', async () => {
   for (const failure of ['reserve', 'quota', 'read', 'base']) for (const next of [guestState, signedIn('Bob')]) {
     for (const leaving of [false, true]) {
       const p = savingPage({language: 'en', favorite: '{"book":[1]}'}, {upstreamStorage: true});
@@ -2500,6 +2521,8 @@ test('disabled sync still clears account data on logout, expiry or account repla
       if (failure === 'reserve') {
         p.faults.quota = 'favorite';
         p.window.Lampa.Storage.set('favorite', {book: [1, 2]});
+        await Promise.resolve();
+        p.visibility(true);
       } else if (failure === 'quota') {
         startSave(p).success(undefined, 304); p.faults.quota = BASE;
         p.requests.at(-1).success('', 204);

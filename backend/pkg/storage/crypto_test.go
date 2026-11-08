@@ -328,6 +328,11 @@ func TestStorageScope_matchBundle(t *testing.T) {
 		{"account", "user"}, {"account_timeline_sync_42", "external"},
 		{"account_bookmarks_sync", "external"}, {"cloud_token", "external"},
 		{"storage_search_history_update_time", "cache"}, {"lampa_uid", "cache"},
+		{"app.js", "cache"}, {"filter_lang_", "cache"},
+		{"jassub_base", "cache"}, {"reaction_asked", "cache"},
+		{"jassub_path", "device"}, {"subtitles_source", "device"},
+		{"subtitles_ass_mode", "device"}, {"subtitles_ass_fonts", "device"},
+		{"subtitles_ass_readable", "device"},
 		{"torrents_filter_data", "cache"}, {"unclassified_plugin_setting", ""},
 		{"svtlv_torrserver_guest_hashes", ""}, {"svtlv_account_signed_in", ""},
 	} {
