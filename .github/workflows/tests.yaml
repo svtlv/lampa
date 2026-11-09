@@ -55,7 +55,7 @@ jobs:
         run: make race
 
   frontend:
-    name: Frontend add-ons ES5 syntax
+    name: Frontend runtime and ES5 syntax
     runs-on: ubuntu-latest
     timeout-minutes: 10
 
@@ -68,8 +68,11 @@ jobs:
       # svtlv/ add-ons run on old TV browsers. acorn is pinned exactly so the gate never
       # changes under us; it checks syntax only, so post-ES5 APIs (fetch, Object.assign,
       # Array.prototype.includes, bare Promise) still need review by hand
-      - name: Parse svtlv/*.js as ECMAScript 5
-        run: npx --yes acorn@8.14.0 --ecma5 --silent svtlv/*.js
+      - name: Parse add-ons and bundle as ECMAScript 5
+        run: |
+          for script in svtlv/*.js app.min.js; do
+            npx --yes acorn@8.14.0 --ecma5 --silent "$script"
+          done
 
       - name: Test account state transitions
         run: node --test tests/account-state.test.cjs
@@ -79,6 +82,9 @@ jobs:
 
       - name: Test TorrServer ownership
         run: node --test tests/torrserver-ownership.test.cjs tests/ownership-docs.test.cjs tests/torrserver-one-link.test.cjs
+
+      - name: Test TorrServer playback lifecycle
+        run: node --test tests/torrserver-playback.test.cjs
 
   compose:
     name: Compose config

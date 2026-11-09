@@ -543,18 +543,58 @@ playback acceptance was performed.
 - Create: `tests/torrserver-playback.test.cjs`
 - Modify: `.github/workflows/tests.yaml` to run the new automated tests
 
-- [ ] Characterize actual discovery/dialog/preload functions with mocked requests,
+- [x] Characterize actual discovery/dialog/preload functions with mocked requests,
   timers and a shared fake server; identify automatic hash-wide drop calls.
-- [ ] Replace automatic close/discovery-timeout drops with local cleanup. Preserve
+- [x] Replace automatic close/discovery-timeout drops with local cleanup. Preserve
   explicit public `Torserver.drop`, membership-only removal and Timeline behavior.
-- [ ] End terminal discovery intervals, clear local requests and reject stale
+- [x] End terminal discovery intervals, clear local requests and reject stale
   callbacks after cancel/reopen/replacement. Fix duplicate polling only where
   characterized; preserve necessary paused-reader behavior.
-- [ ] Check the reader-expiry contract against the selected stable target's source;
+- [x] Check the reader-expiry contract against the selected stable target's source;
   do not introduce a cross-device viewer count based only on one tab's state.
-- [ ] Add success/error/timeout/repeated-open/late-response and simulated two-client
+- [x] Add success/error/timeout/repeated-open/late-response and simulated two-client
   regressions. Mark narrow bundle changes for upstream reapplication and pass
   Node/ES5 checks without waiting for real devices or server experiments.
+
+Task 8 validation (November 9, 2026): characterized the actual shipped
+connection/hash/discovery, file-dialog, preload, autostart and player-statistics
+functions with mocked requests, timers and a shared fake server. Removed the two
+automatic hash-wide drops. Discovery now terminates once on success or at the
+existing 90-second deadline; it skips the final request that was immediately
+cleared by the old timeout path. Close/replacement clears local requests, timers,
+preload and autostart state. Dialog generations, terminal flags and countdown
+identity reject queued callbacks, delayed seasons, detached file enters and stale
+player returns. Back callbacks may open a new dialog without old cleanup erasing
+its state. Narrow bundle edits are marked `svtlv` for upstream reapplication.
+
+Repeated statistics setup now leaves one poller, with late stat/cache callbacks
+fenced after replacement/destroy. The existing hidden/paused polling cadence and
+GStreamer heartbeat remain intact. Explicit public `Torserver.drop` remains
+destructive and unchanged; ownership-only removal and local Timeline behavior
+remain covered by the existing and new suites. No tab-local viewer count was added.
+
+Rechecked the selected MatriX.150 [reader lifetime source](https://github.com/YouROK/TorrServer/blob/MatriX.150/server/torr/torrent.go):
+expiry requires zero cache readers, an elapsed deadline and working/closed state;
+closing a reader extends the deadline. The [stream handler](https://github.com/YouROK/TorrServer/blob/MatriX.150/server/web/api/stream.go)
+uses `GotInfo` before `stat`, extending working-torrent lifetime. The separate
+[background preload](https://github.com/YouROK/TorrServer/blob/MatriX.150/server/torr/preload.go)
+can keep its own work/deadline active. Local cancellation stops this tab's work;
+it does not promise immediate server preload cancellation or measured idle cleanup.
+Live cleanup remains post-implementation acceptance.
+
+Added 36 automated regressions, including two simulated clients sharing a hash,
+connect/hash errors, discovery success/errors/timeout/deadline boundaries,
+repeated opens, late responses, preload progress/stall/replacement, autostart,
+player-stat replacement/destroy, Android/GStreamer paths and Timeline/playback
+callbacks. CI runs the new suite and parses each add-on and the bundle separately
+with pinned Acorn. `node --test tests/*.test.cjs` passed 678 tests with no skips.
+One earlier full run reported an ownership test-process failure without an
+assertion/error detail; that suite passed 229 tests in isolation and the full
+rerun passed. The pinned plan ES5 command, per-file ES5 checks, example-env
+Compose rendering, existing release-transformation/deployment-shell fixtures,
+new frontend shell syntax (`bash -n`) and `git diff --check` passed. Backend code
+did not change; Go checks are not applicable. No production access, deployment,
+settings mutation, real-device playback or live server experiment was performed.
 
 ### Task 9: Implement the bounded resource-measurement collector
 
