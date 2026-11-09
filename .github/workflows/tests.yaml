@@ -95,3 +95,6 @@ jobs:
       # so the server's v1 is first checked by a real deploy
       - name: Validate compose file
         run: docker compose -f devops/docker-compose.yaml --env-file devops/.env.example config --quiet
+
+      - name: Test service contracts and release rendering
+        run: node --test tests/container-compose.test.cjs

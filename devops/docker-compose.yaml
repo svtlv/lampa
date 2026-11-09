@@ -85,6 +85,41 @@ services:
       - default
       - monitoring_external
 
+  torrserver:
+    image: ghcr.io/yourok/torrserver:MatriX.150@sha256:2d02152b804946848f032dcca94fa0f096c8840cff3d37e1ba5400c30f70e16b
+    container_name: torrserver
+    user: "0:0"
+    restart: unless-stopped
+    # the image entrypoint builds the existing command from these variables;
+    # dontkill preserves signal handling, so a normal stop can reach the kill deadline
+    environment:
+      TS_CONF_PATH: /opt/ts/config
+      TS_LOG_PATH: /opt/ts/log
+      TS_TORR_DIR: /opt/ts/torrents
+      TS_PORT: "8090"
+      TS_DONTKILL: "1"
+      GODEBUG: madvdontneed=1
+    ports:
+      - "8090:8090/tcp"
+    volumes:
+      # reuse the complete existing data; never reconstruct settings during adoption
+      - /var/lib/torrserver/config:/opt/ts/config
+      - /var/lib/torrserver/cache:/opt/ts/torrents
+    healthcheck:
+      # version-only endpoint: no torrent access, reader activity or cache lifetime change
+      test: ["CMD", "wget", "-q", "-T", "3", "-O", "/dev/null", "http://127.0.0.1:8090/echo"]
+      interval: 30s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
+    networks:
+      default:
+        aliases:
+          - torrserver
+      monitoring_external:
+        aliases:
+          - torrserver
+
 networks:
   monitoring_external:
     external: true

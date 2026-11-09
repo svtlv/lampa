@@ -298,17 +298,36 @@ performed.
 - Modify: `devops/docker-compose.yaml`, `devops/.env.example` if needed
 - Modify: `.github/workflows/deploy-docker.yaml` only for necessary env wiring
 
-- [ ] Define `torrserver` with the selected latest-stable release/digest, compatible
+- [x] Define `torrserver` with the selected latest-stable release/digest, compatible
   command/environment, existing root ownership, restart policy and `8090/tcp`
   host bindings. Check target-version config/CLI compatibility from public source.
-- [ ] Mount `/var/lib/torrserver/config:/opt/ts/config` and
+- [x] Mount `/var/lib/torrserver/config:/opt/ts/config` and
   `/var/lib/torrserver/cache:/opt/ts/torrents`; preserve current settings in place.
-- [ ] Join destination default and monitoring networks with alias `torrserver`.
+- [x] Join destination default and monitoring networks with alias `torrserver`.
   Preserve current peer exposure, auth and signal behavior; add no migration job.
-- [ ] Define image-supported liveness that touches no torrent/cache/stream and
+- [x] Define image-supported liveness that touches no torrent/cache/stream and
   does not require introducing credentials or production access during development.
-- [ ] Validate rendered Compose and env fixtures, including missing/invalid inputs
+- [x] Validate rendered Compose and env fixtures, including missing/invalid inputs
   and compatibility with the existing release transformation.
+
+Task 2 validation (November 9, 2026): official latest-release API and raw
+registry-index SHA-256 still confirm MatriX.150 and the recorded digest. Tagged
+Dockerfile, entrypoint, settings and signal-handler sources retain the recorded
+runtime contract. The tagged [HTTP router and echo handler](https://github.com/YouROK/TorrServer/blob/MatriX.150/server/web/server.go)
+provide a version-only `GET /echo` without torrent/cache access; the Alpine image
+supplies BusyBox `wget`. The healthcheck uses that endpoint with a bounded timeout.
+No new environment variables, credentials or deployment-env wiring were needed.
+
+Added 14 daemon-free Compose fixture tests and wired them into the existing CI
+Compose job. They cover runtime/data/network preservation, liveness, Test and
+Production/default environments, missing/empty required values, invalid port and
+secret inputs, and the actual release image/build transformation. The release
+shell passed `bash -n` and executed against temporary fixtures (BSD sed's empty
+backup suffix is supplied locally on macOS). `node --test tests/*.test.cjs` passed
+534 tests with no skips; the pinned ES5 gate and example-env Compose rendering
+also passed. Backend code did not change, so Go checks are not applicable.
+No containers were started and no production access, deployment, settings writes
+or live acceptance were performed.
 
 ### Task 3: Add the Jackett Compose service
 
