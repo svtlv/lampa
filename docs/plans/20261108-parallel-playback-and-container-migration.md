@@ -649,18 +649,47 @@ mutation or live acceptance was performed. Tasks 10–12 remain unimplemented.
 - Modify: `docs/parallel-playback-validation.md`, `docs/container-migration-runbook.md`
 - Modify: this plan's final handover only if implementation changes usage
 
-- [ ] Document source-supported candidate fields, units, aggregate-cache math and
+- [x] Document source-supported candidate fields, units, aggregate-cache math and
   trade-offs: 512 MiB cache first, then 4% preload as a separate trial.
-- [ ] Document how later measurements determine overhead, host headroom and
+- [x] Document how later measurements determine overhead, host headroom and
   supported resource boundaries. Keep unmeasured caps/runtime knobs unapplied.
-- [ ] Document separate Jackett search-overhead trials without removing indexers,
+- [x] Document separate Jackett search-overhead trials without removing indexers,
   changing keys or introducing unsupported concurrency options.
-- [ ] Include the final workload matrix, stop/success criteria, full-settings
+- [x] Include the final workload matrix, stop/success criteria, full-settings
   merge/readback/rollback procedure and 4K-selection contract in the handover.
-- [ ] Validate fields/units and settings-save semantics against the selected stable
+- [x] Validate fields/units and settings-save semantics against the selected stable
   target's source rather than relying solely on the MatriX.143 audit, and usage
   against the collector. No trial results, user decisions or live changes are
   prerequisites; label candidates and capacity as unverified.
+
+Task 10 validation (November 9, 2026): packaged staged 512 MiB cache-only
+and separate 4% preload trials, aggregate-cache/preload math, optional later
+read-ahead/peer comparisons, unchanged runtime/resource boundaries, full-settings
+merge/readback/rollback, separate fixed-indexer search trials and the final
+playback/account/membership workload matrix. The handover includes numeric
+baseline-derived stop thresholds, the proposed 20% latency gate, three repeated
+startup/seek/cancellation cases, 60-minute three-viewer sustain and 10-minute
+cleanup, unrestricted single-viewer 4K and optional mixed/three-4K coverage.
+Candidates, capacity and actual incident cause remain explicitly unverified.
+
+Rechecked 14 public references and the selected MatriX.150 settings model, UI
+conversion, per-hash cache/reader allocation, preload math, API handler and
+save/reconnect implementation. The target still replaces the full settings
+object and drops active torrents; documented that HTTP 200 can coexist with
+read-only mode or failed reconnect. Collector usage matches its duration limits,
+annotation schema, generation/missing-metric semantics and measurement limits;
+latency/codec/search fan-out require companion observations.
+
+Eight local document links/anchors, four shell snippets (syntax only), JSONL
+examples, source-contract assertions and candidate arithmetic passed. Existing
+collector fixtures validate the documented examples; no artificial prose unit
+tests were added. `node --test tests/*.test.cjs` passed 720 tests with no skips,
+including release-transformation/deployment-shell and collector fixtures. The
+pinned ES5 gate, example-env Compose rendering, collector `bash -n` and
+`git diff --check` passed. Backend code did not change, so Go checks are not
+applicable. No operational snippets were executed. No production access,
+deployment, settings writes, live collection or playback acceptance was performed.
+Tasks 11–12 remain unimplemented.
 
 ### Task 11: Run implementation acceptance checks
 
@@ -776,6 +805,15 @@ emulation for the production pins on ARM.
 
 ### Live measurement and tuning
 
+Follow the delivered [measurement and acceptance procedure](../parallel-playback-validation.md)
+and [runbook tuning handover](../container-migration-runbook.md#tuning-and-playback-handover-after-cutover).
+They contain the complete target-source contract, settings procedure, workload
+matrix, gates and result record. The collector's 4200-second example covers a
+60-minute sustain plus 10-minute cleanup; measure setup/reference/repeated cases
+separately or extend the bounded duration. Latency, codec, search fan-out and
+numeric stop thresholds belong in the companion record, not extra annotation
+fields. Neither candidates nor capacity have been verified by live trials.
+
 Run the delivered collector and annotate viewer start/seek/stop events, bitrate,
 player/platform and network route. Correlate CPU/memory/swap/pressure with
 playback and neighboring-service health. Do not deliberately replay the unsafe
@@ -797,11 +835,14 @@ before choosing memory/swap/CPU/runtime boundaries. A cgroup OOM still means
 playback failed. Do not assume Swarm-only limits constrain standalone Compose.
 
 Apply candidates one variable at a time during an idle window using the selected
-target's documented settings API. The earlier MatriX.143 audit showed full-object
-replacement and torrent/client reset; use the delivered target-version notes for
-the upgraded build rather than assuming the old contract unchanged. Merge the
-candidate into a preserved full object, verify readback, and keep the complete
-rollback snapshot. Never send a sparse replacement or assume file edits hot-reload.
+target's documented settings API. The MatriX.150 handler uses `POST /settings`
+with `action=get` for the full snapshot and `action=set` with the full merged
+object under `sets`. It retains full-object replacement and torrent/client reset;
+HTTP 200 alone does not prove a save or successful reconnection. Preserve all
+fields, compare full readback, check functionality and keep complete rollback
+snapshots per stage. Stop workloads before restoring a full snapshot during an
+idle window. Never send a sparse replacement, use `action=def` for rollback or
+assume file edits hot-reload.
 
 Measure Jackett searches separately from steady streaming: concurrent searches,
 indexer fan-out, latency, retries and resource usage. Preserve all configured

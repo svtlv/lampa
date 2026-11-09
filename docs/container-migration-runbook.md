@@ -216,6 +216,58 @@ emulation; never rehearse against the three production data binds.
 No tuning change or capacity claim follows from migration readiness. Keep the
 existing live settings, unrestricted 4K selection and all indexers. Resource trials,
 viewer-isolation checks and the unreproduced account-warning incident remain later
-live acceptance work described in the plan's final handover. The collector and
-detailed tuning procedure are separate implementation tasks; this runbook records
-no trial result or successful production cutover.
+live acceptance work. Use the delivered
+[measurement and acceptance procedure](parallel-playback-validation.md) for the
+collector, source-supported fields/units, full-settings merge/readback/rollback,
+workload matrix, search comparisons and stop gates. This runbook records no trial
+result or successful production cutover.
+
+## Tuning and playback handover after cutover
+
+Run these comparisons only after migration verification, separately from any
+normal deployment. Prepare a safe idle/single-viewer reference, numeric
+headroom/pressure thresholds and a private full-settings rollback snapshot first.
+Do not replay three distinct torrents with the old 2 GiB-per-hash cache to obtain
+a baseline. Begin with one viewer and increase load only within the stop gates.
+
+Trial A changes only `CacheSize` to `536870912` bytes (512 MiB), retaining 1%
+preload. Evaluate A before trial B changes only `PreloadCache` to `4`. The nominal
+preload is 5.12 MiB for A and 20.48 MiB for B. Three distinct 512 MiB caches total
+1.5 GiB nominal payload plus unmeasured overhead; readers of one hash share a
+cache. Neither value is a process-memory cap or a proven production default.
+
+MatriX.150's settings API replaces the full object and drops all active torrents
+before reconnecting the BT client. Apply and roll back only while idle, using the
+complete preserved object with the intended field merged in. Re-read and compare
+all fields, then verify functionality: HTTP 200 can occur with read-only settings
+or a failed client reconnect. Keep full exports/credentials outside Git. Do not
+submit a sparse object, reset defaults or assume file edits hot-reload. See the
+acceptance procedure for exact API semantics and source references.
+
+Exercise idle, one/two/three distinct 1080p torrents, two/three same-hash readers,
+preload, seek, pause/resume, discovery timeout, dialog close/cancel, one viewer
+stopping and final cleanup. Repeat startup/seek/cancellation three times per
+candidate. Sustain the required three-viewer workload for at least 60 minutes
+and observe at least 10 minutes after every reader and poller stops. Avoid
+torrent status/cache probes that extend lifetime. Compare LAN/tailnet routes,
+both URLs, account/guest membership and partial-removal retry, local player/link
+selection and accurate account read/apply/save messages. Include the reported
+anonymous/signed-in device arrangement; similar messages alone do not prove
+cross-device delivery.
+
+Verify single-viewer 4K with actual bitrate, codec and player recorded. Keep 4K
+selectable without forced downgrade. Mixed or three-4K tests are optional and
+carry no promised capacity. Run Jackett searches separately, then during accepted
+playback, with a fixed indexer set and unchanged keys/cookies; record fan-out,
+latency/retries and host/neighbor overhead. Add no unsupported concurrency flag.
+
+Stop on new OOM/restart, cross-viewer interruption, neighbor failure or numeric
+headroom/pressure thresholds. Record absolute startup/seek times; the proposed
+gate is at most 20% worse than the comparable safe one-viewer reference. Stop
+workloads before an idle-window rollback. Promote a candidate only after the
+matrix and duration gates pass; missing coverage stays unverified. Measure
+overhead and neighbor headroom before proposing durable CPU/memory/swap/PID or
+runtime boundaries. No caps, GC knobs, rate restrictions or disk-cache conversion
+are applied here. Record sanitized outcomes in the acceptance document and retain
+private JSONL/settings evidence separately. Repository checks establish no live
+incident fix or measured capacity.

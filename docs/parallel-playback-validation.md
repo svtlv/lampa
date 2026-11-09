@@ -1,10 +1,11 @@
-# Parallel playback measurement
+# Parallel playback measurement and acceptance
 
 The repository provides a read-only collector for later playback and search
 trials. No production collection, deployment, playback acceptance or capacity
 measurement has been performed. Fixture results demonstrate the collector, not
-server capacity. Tuning candidates and the acceptance procedure are a separate
-implementation task.
+server capacity. The candidates and procedure below are ready for later owner-run
+trials; their performance and supported capacity remain unverified. Initial
+container adoption preserves the complete live settings without applying them.
 
 ## Run the collector later
 
@@ -183,7 +184,274 @@ restart/cgroup generations, missing counters, command failures, redaction,
 annotation appends and signal termination. Fixture-root switches exist only for
 these tests; normal operation uses `/proc` and `/sys/fs/cgroup`.
 
-## Read-only boundaries and references
+## Candidate sequence and source contract
+
+The recorded MatriX.143 settings are historical inputs. Before any later trial,
+read the actual full settings from the deployed MatriX.150 target and preserve
+them privately. If versions or settings differ, reassess the comparison rather
+than silently overwriting them with the snapshot. The following source checks
+were made against the selected MatriX.150 tag on November 9, 2026.
+
+| API field | Unit / meaning | Recorded value | Staged trial |
+| --- | --- | --- | --- |
+| `CacheSize` | Bytes per distinct torrent cache; UI conversion uses binary MiB | `2147483648` (2 GiB) | A: `536870912` (512 MiB), all other fields retained |
+| `PreloadCache` | Percent of cache used to calculate nominal preload | `1` | Retain `1` for A; B changes only this to `4` after A is evaluated |
+| `ReaderReadAHead` | Percent of each active reader's share ahead of its position | `95` | Retain; optional later trial `80` moves capacity behind the reader |
+| `ConnectionsLimit` | Established peer connections per torrent; also affects piece-loading concurrency per reader | `25` | Retain; optional later trial `16` may reduce work and throughput |
+| `UseDisk` / `ResponsiveMode` | Disk cache / responsive reader booleans | `false` / `true` | Retain; no disk conversion |
+| `TorrentDisconnectTimeout` | Seconds used to extend torrent expiry | `30` | Retain; measure cleanup rather than shortening blindly |
+| `DownloadRateLimit` / `UploadRateLimit` | Positive values are multiplied by 1024 for byte/s limits; `0` is unlimited | `0` / `0` | Retain |
+| `DisableUpload` / `RemoveCacheOnDrop` | Upload disablement / disk-cache deletion booleans | `false` / preserve actual value | Retain; disk deletion is not a RAM budget |
+| `TrackTimecode` | Shared server playback-position recording | `false` | Retain; preserve local Timeline behavior |
+| `StoreSettingsInJson` / `StoreViewedInJson` | Settings / viewed storage preferences | `true` / `false` | Retain with all unlisted settings |
+
+The tagged [settings model and validation](https://github.com/YouROK/TorrServer/blob/MatriX.150/server/settings/btsets.go)
+define these fields. They clamp read-ahead to 5–100% and preload to 0–100%; zero
+cache/connection/timeout values select fallback defaults, not an unlimited cache
+or disabled expiry. The [settings UI](https://github.com/YouROK/TorrServer/blob/MatriX.150/web/src/components/Settings/SettingsDialog.jsx)
+converts cache input using 1024 squared despite its MB label.
+The [BT client setup](https://github.com/YouROK/TorrServer/blob/MatriX.150/server/torr/btserver.go)
+maps peer/rate fields to the client. These facts support candidate syntax and
+units, not a prediction that lower values will play smoothly.
+
+The [storage implementation](https://github.com/YouROK/TorrServer/blob/MatriX.150/server/torr/storage/torrstor/storage.go)
+creates a cache per hash; readers of that hash share it. The
+[reader range calculation](https://github.com/YouROK/TorrServer/blob/MatriX.150/server/torr/storage/torrstor/reader.go)
+divides cache capacity among active readers and splits ahead/behind space using
+`ReaderReadAHead`. Changing 95 to 80 redistributes space; it does not shrink the
+cache. Readers at different offsets may need different pieces even for one hash.
+
+| Distinct hashes | Recorded 2 GiB per hash | Candidate 512 MiB per hash |
+| --- | --- | --- |
+| 1 (including two/three readers sharing it) | 2 GiB | 0.5 GiB |
+| 2 | 4 GiB | 1 GiB |
+| 3 | 6 GiB | 1.5 GiB |
+
+These are nominal payload budgets, not process RSS or hard cgroup ceilings.
+Piece buffers/rounding, readers, networking and Go heap retention add overhead.
+The [cache implementation](https://github.com/YouROK/TorrServer/blob/MatriX.150/server/torr/storage/torrstor/cache.go)
+uses capacity for piece eviction, with protected reader/file ranges; allocation
+can exceed the nominal number. A smaller cache reduces seek and forward cushion.
+
+The [preload calculation](https://github.com/YouROK/TorrServer/blob/MatriX.150/server/torr/apihelper.go)
+uses `CacheSize * PreloadCache / 100`. The recorded 2 GiB at 1% yields about
+20.48 MiB. Trial A (512 MiB at 1%) yields about 5.12 MiB. Trial B (512 MiB at 4%)
+restores about 20.48 MiB nominal preload. Actual work also depends on pieces and
+beginning/end reads in the [preloader](https://github.com/YouROK/TorrServer/blob/MatriX.150/server/torr/preload.go).
+Compare A with the safe reference, then B with A. Do not combine optional
+read-ahead/peer changes with either trial. Larger preload may improve the initial
+cushion while increasing startup work; neither outcome is measured yet.
+
+Keep existing client preload behavior for the first comparison. Record each
+player, codec and any GStreamer/transcoding path. A later direct-streaming trial
+requires native decoding support on that client; do not disable a needed path.
+Keep both URLs, shared credentials, useful account sync and local player/link
+selection. No setting is invented for the built-in polling cadence.
+
+## Full-settings apply, readback and rollback
+
+This is a later manual operation, separate from the read-only collector. It must
+run in an idle maintenance window with no viewers or preloads on the affected
+server. A settings save is disruptive even when only one field changes.
+
+The target [API handler](https://github.com/YouROK/TorrServer/blob/MatriX.150/server/web/api/settings.go)
+uses `POST /settings` with JSON `action` equal to `get`, `set` or `def`. A `get`
+request (`{"action":"get"}`) returns the settings object directly. A `set` request
+requires that complete object under `sets`; it does not merge a sparse patch.
+Missing fields become Go zero values before validation. Never use `def` for a
+trial or rollback.
+
+The target [save implementation](https://github.com/YouROK/TorrServer/blob/MatriX.150/server/torr/apihelper.go)
+stores settings, drops all active torrents, disconnects the BT client and retries
+reconnection up to 30 times, with one-second waits after failed attempts. The
+handler also restarts DLNA/Bonjour/rutor helpers as applicable. No container
+restart is required for this normal API path. HTTP 200 alone proves neither
+durability nor a connected torrent client: read-only mode skips the save, and
+reconnect failure is logged without changing the handler's success status.
+
+1. Identify the actual server/version behind the chosen URL. Two URLs may reach
+   one server; save once per physical instance. Coordinate all users, stop
+   viewers/preloads and prevent concurrent settings edits. Use existing
+   authentication privately, with bounded requests and no credentials in URLs,
+   command history or shared output. Retain the migration backup separately.
+2. Read the full object through `POST /settings` with `action=get`. Preserve a
+   private, access-restricted byte-for-byte response plus a parsed rollback copy,
+   target version, time and nonsecret trial identifier outside Git. Abort on a
+   failed/invalid response. Include nested Torznab/TMDB credentials and all
+   unrelated fields in the private copy; do not export them in a trial report.
+3. Copy that full object and change only A's `CacheSize`, or only B's
+   `PreloadCache` from A's verified full object. Compare recursively against the
+   snapshot; the intended single field must be the only change. Re-read before
+   writing and stop/rebase the candidate if settings changed. There is no atomic
+   compare-and-swap here; coordination remains necessary. Keep a full rollback
+   snapshot for each stage as well as the original pre-trial snapshot.
+4. Submit `action=set` with the entire merged object in `sets`, using JSON
+   content type. Do not send this document's table as a partial object. Allow for
+   reconnect delay. After timeout/disconnection, read current settings and
+   establish state before retrying: a failed response does not prove no write.
+5. Read the full object again with `action=get` and compare every field with the
+   intended result, including unchanged nested values and storage preferences.
+   Treat unexpected differences, read-only behavior or failed reads as a failed
+   application. Check service readiness and then deliberate playback/search
+   functionality; version-only liveness does not establish BT reconnection or
+   saved-settings durability. Recheck retention at the later normal redeployment.
+6. On pressure/regression, stop the trial workload first. During the resulting
+   idle window, restore the complete chosen rollback object through the same
+   `set` path and repeat full readback and functional checks. Preserve current
+   state and reconcile unrelated edits before rollback so they are not silently
+   lost. If recovery fails, keep trials stopped and use the runbook's manual
+   recovery procedure. Do not edit files assuming hot reload or downgrade the
+   binary against upgraded data.
+
+Settings exports may contain secrets. No API request is supplied as an automated
+helper, and none is executed during repository validation. The procedure does not
+authorize a production change as part of implementation.
+
+## Workload matrix for later acceptance
+
+Start with a safe idle and single-viewer reference on the deployed version.
+Do not reproduce the unsafe three-hash, 2 GiB-per-hash profile merely to obtain a
+baseline. After applying a candidate in an idle window, progress from one to two
+to three viewers only while the stop gates below remain clear. Keep content,
+bitrate, codec, player, route, indexer set and neighboring load comparable.
+
+| Workload | Required observations |
+| --- | --- |
+| Idle before/after | Host/neighbor load, TorrServer current memory and pressure, retained heap versus live cache; no torrent polling for expiry measurement |
+| One 1080p viewer | Startup/preload, steady throughput, buffering and seek recovery; establishes a safe latency reference |
+| Two then three distinct 1080p torrents | Simultaneous preload, sustained playback and seeks; distinct-hash memory growth and aggregate bitrate |
+| Two then three readers of one hash | Different offsets, pause/resume and seeking; close/cancel one viewer, stop one, verify others continue |
+| Discovery and dialog lifecycle | Discovery success, error and 90-second timeout; close during discovery/preload, repeated open/replacement, late callbacks; no automatic hash-wide drop |
+| All viewers stopped | Stop external players and close dialogs/pollers on every client; observe at least 10 minutes without status/cache probes that extend lifetime |
+| LAN and tailnet | Repeat startup/seek and multi-viewer cases on each used route; record bitrate and route rather than assuming equal bandwidth |
+| One 4K viewer | Actual codec/player support, bitrate, startup, seek, buffering and resource headroom; selection stays unrestricted |
+| Jackett search and search during playback | Fixed indexer set, one then concurrent client searches, latency/retries/fan-out and impact on playback/neighbors |
+| My Torrents | Both configured URLs, shared and different servers, active-list intersection, absent hashes, duplicate URLs, account/guest isolation, partial removal failure/retry, local link/player choice |
+| Account warning | Reported anonymous/signed-in pair during simultaneous playback; then same-account, different-account and guest pairs; accurate read/apply/save errors and recoverable dirty edits |
+
+Repeat startup/seek/cancellation cases three times for each candidate. Sustain
+the required three-viewer 1080p workload for at least 60 minutes, then collect at
+least 10 minutes after all readers and pollers stop. Use the documented
+`--duration 4200 --interval 5` collector run for that 60+10-minute segment; run
+setup, reference and repeated short cases separately, or increase the duration
+within its 86400-second maximum. Do not let setup consume the required sustain
+or cleanup coverage. Include same-hash and distinct-hash cases in the record.
+
+4K has no resolution restriction, forced downgrade or blanket bandwidth cap.
+Single-viewer 4K is required later acceptance; mixed or three-4K workloads are
+optional exploration and no three-4K capacity is promised. Resolution alone does
+not specify bitrate, network quality or decoder requirements.
+
+For account-warning reproduction, record the signed-in client's local
+`svtlv_sync_diagnostics()` phase/method/status/category/timing, backend health and
+host pressure alongside the workload. Record actual app/plugin versions. No
+tokens, identities, document bodies or setting values belong in the report.
+Similar messages on two clients do not establish cross-device delivery. The
+reported production cause remains unreproduced by repository tests.
+
+Local cancellation stops this client's requests/timers; it does not promise
+immediate server-side preload termination. The target's
+[expiry implementation](https://github.com/YouROK/TorrServer/blob/MatriX.150/server/torr/torrent.go)
+requires zero cache readers, an elapsed deadline and working/closed state;
+reader close extends the deadline. Background preload and deadline-refreshing
+requests can delay expiry. Saved torrent records may remain after live cache
+expires, and Go may retain freed heap. The collector has no reader counter or
+heap profiler: quiet memory alone cannot prove reader cleanup or a leak. Record
+coverage limits and investigate unexpected retention separately, without keeping
+the torrent alive by measuring it.
+
+## Separate Jackett search trials
+
+Compare idle Jackett with one search and then simultaneous searches from two and
+three clients, first without streaming and then during the accepted streaming
+workload. Preserve the same enabled indexers, keys, cookies, cache settings and
+Torznab route. Record warm/cold cache conditions rather than clearing production
+cache to force a result. Use neutral query/scenario aliases; retain any private
+query/indexer detail outside Git.
+
+Append `search` annotations and keep start/completion latency, failures, retries,
+result counts and indexer fan-out in the companion trial record. Fan-out here
+means the number of configured indexers actually queried, not just the number
+of Lampa clients. The collector measures host/container overhead and health; it
+does not issue searches or infer search latency/fan-out. Compare Jackett CPU,
+memory, network and pressure alongside TorrServer, API and selected neighbors.
+
+Do not remove indexers, rotate keys, disable useful account sync, add an unsupported
+concurrency option or introduce a proxy/helper/extra server for this comparison.
+If search fan-out is the bottleneck, record it as follow-up with supported
+options researched for the deployed version; do not disguise it as steady-stream
+capacity or promote an untested Jackett default.
+
+## Stop gates, success and resource decisions
+
+Before increasing load, use the safe reference to write numeric minimum available
+memory/headroom, swap/reclaim rate, PSI duration/percentage, CPU saturation and
+neighbor latency/health thresholds in the private trial record. These host-specific
+numbers are not known yet. An unset threshold or unavailable required metric
+means capacity acceptance is incomplete; it does not block repository completion.
+Check changes in OOM/restart counters within each collector generation rather
+than treating historical peaks/events as new failures.
+
+| Gate | Decision |
+| --- | --- |
+| New OOM, unexpected restart, cross-viewer interruption or neighbor failure | Stop workload immediately; preserve evidence, then roll back settings in an idle window |
+| Numeric headroom/pressure/swap/latency threshold crossed, severe sustained reclaim or growing buffering | Stop escalation and revert the candidate if it caused regression; do not wait for an OOM |
+| Startup/seek latency | Record absolute seconds and worst of three matched repetitions; proposed gate is no more than 20% worse than the safe one-viewer reference for comparable content/player/route |
+| Required playback quality | No new sustained/repeated buffering or cross-viewer drops; all lifecycle, ownership and account-error cases pass |
+| Duration and coverage | Required 60-minute three-viewer sustain and 10-minute cleanup recorded; missing observations remain unverified |
+| Planned full-stack deployment | Test separately for retained data/credentials/readiness; expected playback interruption is outside capacity trials |
+
+Lower memory use alone is insufficient. Compare sampled current/peak charged
+memory for idle, one/two/three hashes and same-hash readers, plus startup/seek
+bursts. Budget for allocator/piece/network/reader overhead from those observed
+envelopes; do not subtract a nominal full cache from a partially filled sample
+and call the remainder an exact overhead measurement. Cgroup memory includes
+cache/kernel charges and is not process RSS. If process RSS/heap attribution is
+needed, collect it separately with private diagnostics; the shipped collector
+does not provide it.
+
+Reserve host memory for measured neighbors, OS and observed bursts; check
+`MemAvailable`, swap/reclaim, PSI and service health together. Swap already in use
+is different from sustained swap traffic; neither a quiet TorrServer cgroup nor
+an OOM victim alone identifies the initiating process. Do not sum overlapping
+network/storage accounting or compare kernel lifetime peaks across generations
+as if they were run-local maxima.
+
+Only after these measurements should a separate reviewed change choose memory,
+swap, CPU or PID boundaries. Verify the proposed fields are supported by the
+actual standalone Compose/Engine versions and read back their effective runtime
+limits after a later deployment; do not assume Swarm-only settings constrain
+standalone Compose. Repeat playback acceptance under any chosen boundaries.
+A cgroup OOM is a failed stream, not successful host protection. No new cap,
+`GOMEMLIMIT`, aggressive GC setting, disk-cache conversion or rate restriction
+is applied by this implementation. Existing `GODEBUG=madvdontneed=1` is preserved.
+
+## Trial record and promotion
+
+Keep complete JSONL metadata/samples/annotations/summary and private rollback
+exports outside Git. Use public trial aliases for any sanitized findings added
+here. The collector accepts only the documented event fields; store codec,
+absolute startup/seek latency, buffering duration/count, search latency/fan-out,
+numeric thresholds and nonsecret settings values in a separate record. A
+`recovered` event alone does not distinguish first frame from seek recovery.
+
+| Record | Required content / current status |
+| --- | --- |
+| Version and comparison | Image/runtime/app/plugin versions, safe reference ID, candidate stage and changed nonsecret values; no live run yet |
+| Coverage | Workload, distinct hashes versus readers, route, player/platform/codec, bitrate and duration; not yet measured |
+| Resource outcome | Host/neighbor envelope, current/peak memory with generations, CPU, swap/reclaim, PSI, I/O/network, OOM/restarts, unavailable metrics; not yet measured |
+| Playback/search outcome | Absolute and relative startup/seek latency, buffering, searches/retries/fan-out, account/membership/lifecycle cases; not yet verified |
+| Decision | Stop thresholds, failures, full readback, keep/revert decision and rollback verification; no candidate promoted |
+
+Promote A or B only after the applicable matrix and gates pass with adequate
+headroom; otherwise retain/revert the safe settings and record the failure.
+Document supported capacity only for the measured content, clients, routes and
+neighbor conditions. Initial cutover, later normal redeployment, actual incident
+reproduction and initiating-process attribution remain separate operational
+results. Unmeasured capacity or unresolved incidents must stay visible as
+follow-up; automated checks cannot establish a live fix.
+
+## Collector read-only boundaries and references
 
 Only metric/configured-state reads and output to standard output occur. The
 collector never runs `docker exec`, Compose, health probes, container logs,
