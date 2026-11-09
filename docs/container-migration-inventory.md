@@ -19,7 +19,7 @@ These are rollback references, not targets for the new service definitions.
 
 An old image reference alone is insufficient for rollback: newer applications may
 rewrite persistent state. Later rollback requires compatible data or a reconciled
-pre-upgrade backup, as described in the plan's post-implementation handover.
+pre-upgrade backup, as described in the [manual handover runbook](container-migration-runbook.md#manual-rollback-after-an-upgrade).
 
 ### Selected stable container targets
 
@@ -75,8 +75,11 @@ not stored in Git. Release checks and index inspection do not pull or run images
 Keep both configured TorrServer client URLs and shared credentials. The active
 link/player choice stays device-local. Keep Lampa web's `8092:80` publication and
 its API-only Apache proxy; add no media/search proxy, FlareSolverr or VPN service.
-The initial old-project takeover is manual. Normal later deployments retain the
-full-stack pull/down/up lifecycle and may interrupt playback.
+The initial old-project takeover is manual. Follow the [runbook's cutover order](container-migration-runbook.md#cutover-order):
+stop old writers, secure the consistent backup, free names/ports, deploy, verify,
+then retire obsolete sources. Normal later deployments retain the full-stack
+pull/down/up lifecycle and may interrupt playback and searches, even when the
+vendor service configuration is unchanged.
 
 ## Persistent data: exactly three existing binds
 
@@ -95,6 +98,14 @@ files; those `.bak` files are not a verified complete backup.
 under `/opt`. It must survive any later removal of obsolete deployment sources.
 Keep both `/var/lib/torrserver` binds too. Logs at `/opt/ts/log` are in TorrServer's
 writable container layer, outside the three recorded binds.
+
+Before allowing upgraded binaries to write, take a consistent offline backup of
+the complete binds, retaining ownership/modes and configuration/database/credential
+state. Account separately for recovery-relevant writable-layer files before old
+containers are removed. Verify recovery material in isolation. Backups are not a
+live-data relocation. The [cleanup path table](container-migration-runbook.md#5-retire-obsolete-deployment-sources-after-successful-verification)
+distinguishes removable deployment definitions from retained live data; it does
+not authorize deleting the Jackett parent tree under `/opt`.
 
 ## TorrServer runtime contract
 
@@ -120,6 +131,10 @@ retain these path variables and command flags. Its
 still ignores termination signals with `--dontkill`. A normal container stop may
 therefore reach Docker's forced-kill deadline. This is a handover caveat, not a
 reason to change the preserved setting or automate shutdown in this task.
+The [manual signal/shutdown instructions](container-migration-runbook.md#torrserver-signal-handling-and-graceful-shutdown)
+cover preventing automatic restart, using the mutating `/shutdown` API and
+confirming process exit before backup or another writer. The API is never a
+health probe or a deployment hook.
 
 Preserve the entire saved settings object. Recorded nonsecret values are:
 
@@ -199,8 +214,11 @@ the preserved `unless-stopped` policy handles process exit.
 
 Healthy means the HTTP application is responding. It does not establish working
 indexer credentials, upstream availability, saved-data preservation or TorrServer
-Torznab connectivity. Those checks remain in the later manual handover. The
-release workflow's explicit readiness wait is implemented in the next plan task.
+Torznab connectivity. Those checks remain in the [later manual verification](container-migration-runbook.md#4-verify-before-retiring-old-sources).
+The release workflow now waits up to three minutes for API, TorrServer and
+Jackett to be running and healthy together. Failed startup/readiness reports
+selected container state fields and bounded API logs without vendor logs or
+private configuration; it does not automatically roll back.
 
 ## Known unknowns and later operational context
 
@@ -212,15 +230,17 @@ release workflow's explicit readiness wait is implemented in the next plan task.
 | New-version state downgrade compatibility | Do not assume old binaries can reopen upgraded databases/configuration |
 | Actual playback capacity, WAN/tailnet capacity and initiating OOM request | Remain unmeasured/unproven; later use the delivered collector and acceptance procedure |
 
-Neither service had explicit CPU/memory/swap/PID limits or Docker healthchecks.
-Both used `json-file` logging without explicit container rotation. Preserve the
-existing live settings in initial definitions; later plan tasks add non-streaming
-liveness and document measurement candidates. The November 7 global OOM proves
+Neither service had explicit CPU/memory/swap/PID limits or Docker healthchecks
+at the snapshot. Both used `json-file` logging without explicit container rotation.
+The repository definitions now add non-streaming healthchecks and preserve the
+existing live settings without unmeasured resource caps; later plan tasks document
+measurement candidates. The November 7 global OOM proves
 TorrServer was killed, not that a leak or initiating request was identified.
 
 These unknowns do not block repository implementation or request owner action
 during it. Shutdown, backup, deployment, cleanup and live verification belong
-exclusively to the implementation plan's post-implementation handover. This
+exclusively to the [manual runbook](container-migration-runbook.md) and the
+implementation plan's post-implementation handover. This
 inventory claims neither successful migration nor measured three-viewer capacity.
 
 Repository operational artifacts remain under the existing `docs/`, `devops/`

@@ -411,17 +411,34 @@ settings writes or live acceptance was performed.
 - Create: `docs/container-migration-runbook.md`
 - Modify: `docs/container-migration-inventory.md`
 
-- [ ] Document the final handover sequence from this plan: old-container stop,
+- [x] Document the final handover sequence from this plan: old-container stop,
   new deployment, verification, then obsolete-source cleanup.
-- [ ] Explain the current signal-handling caveat and graceful shutdown API as
+- [x] Explain the current signal-handling caveat and graceful shutdown API as
   instructions only; implement no host shutdown or migration helper.
-- [ ] Distinguish removable deployment definitions from all retained bind data,
+- [x] Distinguish removable deployment definitions from all retained bind data,
   especially `/opt/svtlvtv/jackett/config`.
-- [ ] Document upgrade-aware manual rollback, pre-upgrade configuration/database
+- [x] Document upgrade-aware manual rollback, pre-upgrade configuration/database
   backups, saved-data/credential comparisons and expected deployment interruptions.
   Do not assume the old binary can read state rewritten by the newer release.
-- [ ] Validate paths, links and any command snippets locally. Do not execute the
+- [x] Validate paths, links and any command snippets locally. Do not execute the
   instructions or require the owner to verify them before this task completes.
+
+Task 5 validation (November 9, 2026): added the manual cutover/runbook and
+linked inventory guidance for consistent pre-upgrade backups, private saved-data
+and credential comparisons, asynchronous graceful shutdown with restart handling,
+upgrade-aware rollback, retained binds and post-verification source cleanup.
+Matching MatriX.150 signal/shutdown sources were rechecked. Updated inventory
+wording to reflect the completed healthchecks and deployment readiness wait.
+
+Validated 13 local document links/anchors, all three bind pairs, workflow ordering
+and readiness contracts, the diagram note and the single read-only shell snippet
+with `bash -n` only. Documentation checks were local assertions; no artificial
+unit tests were added for prose. `node --test tests/*.test.cjs` passed 552 tests
+with no skips, including release rendering and deployment shell syntax/fixtures.
+The pinned ES5 gate, example-env Compose rendering and `git diff --check` passed.
+Backend code did not change, so Go checks are not applicable. No operational
+instructions were executed: no production access, shutdown, backup, deployment,
+settings writes, cleanup or live acceptance was performed.
 
 ### Task 6: Correct account error classification and diagnostics
 
