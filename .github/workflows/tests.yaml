@@ -104,3 +104,8 @@ jobs:
 
       - name: Test service contracts and release rendering
         run: node --test tests/container-compose.test.cjs tests/deployment-workflow.test.cjs
+
+      - name: Test read-only playback measurement fixtures
+        run: |
+          bash -n devops/measure-playback.sh
+          node --test tests/playback-measurement.test.cjs

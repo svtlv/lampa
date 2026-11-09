@@ -599,22 +599,49 @@ settings mutation, real-device playback or live server experiment was performed.
 ### Task 9: Implement the bounded resource-measurement collector
 
 **Files:**
-- Create: `devops/measure-playback.sh`, `tests/playback-measurement.test.cjs`
+- Create: `devops/measure-playback.sh`, `devops/measure-playback.py`,
+  `tests/playback-measurement.test.cjs`
 - Create: `docs/parallel-playback-validation.md`
 - Modify: `.github/workflows/tests.yaml` for relevant automated checks
 
-- [ ] Implement timestamped, duration-bounded collection of host/container CPU,
+- [x] Implement timestamped, duration-bounded collection of host/container CPU,
   current/peak memory, OOM, swap/reclaim, CPU/memory/I/O pressure, disk/network
   rates and configured service health. Handle missing metrics explicitly.
-- [ ] Track container/cgroup generations and accept playback event/bitrate/client
+- [x] Track container/cgroup generations and accept playback event/bitrate/client
   annotations. Avoid private media identifiers and torrent requests that extend
   cache lifetime. Produce a documented result format for later comparisons.
-- [ ] Keep the collector read-only: no settings writes, streams, forced restarts,
+- [x] Keep the collector read-only: no settings writes, streams, forced restarts,
   production load generation or cleanup mutations.
-- [ ] Add fixture tests for parsing, time bounds, restart generations, unavailable
+- [x] Add fixture tests for parsing, time bounds, restart generations, unavailable
   counters, errors and output redaction; validate shell syntax and Node behavior.
-- [ ] Document usage and example fixture output. Actual production collection is
+- [x] Document usage and example fixture output. Actual production collection is
   not required or performed as part of this task.
+
+Task 9 validation (November 9, 2026): added a Bash launcher and a Python 3.8+
+standard-library collector. Collection uses host proc files, cgroup v2 and one
+filtered, deadline-bounded Docker inspection per sample. It records UTC and
+monotonic times, CPU, current/kernel-peak memory, OOM/swap/reclaim, PSI, disk and
+network counters/rates, and configured health. Missing metrics remain explicit;
+container/cgroup generations and missing/reset counters fence rate baselines.
+Strict appendable annotations accept public viewer/event/bitrate context and
+reject private/free-form fields without echoing them. No application requests,
+probes, streams, container mutation, settings reads/writes or load generation occur.
+The companion Python file keeps parsing and lifecycle code reviewable without
+adding a runtime package dependency or writing bytecode.
+
+Added 42 fixture checks for parsing and rate units, time bounds, restarts,
+replacement/cgroup changes, counter resets, unavailable/invalid counters, partial
+Docker errors, command timeouts, signal termination, redaction, annotation
+validation/appends/size bounds/nonregular files, CLI limits and documentation
+links/shell/JSON examples. CI runs the fixtures and shell syntax check. The full
+`node --test tests/*.test.cjs` suite passed 720 tests with no skips after correcting
+a fixture that unintentionally renamed an interface during a rate comparison.
+The pinned plan ES5 command and per-file ES5 parsing, example-env Compose rendering,
+existing release-transformation/deployment-shell fixtures, `bash -n` and
+`git diff --check` passed. Backend code did not change; Go checks are not applicable.
+Documentation distinguishes fixture output, unavailable coverage and kernel peaks
+from measured capacity. No production collection, deployment, playback, settings
+mutation or live acceptance was performed. Tasks 10–12 remain unimplemented.
 
 ### Task 10: Package the tuning candidates and acceptance procedure
 
