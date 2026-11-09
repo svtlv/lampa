@@ -493,19 +493,48 @@ No production access, device playback, deployment or socket changes were perform
 - Modify: `backend/README.md`, `docs/design/settings-sync-backend-design.md`
 - Modify: `tests/ownership-docs.test.cjs` only for changed documented contracts
 
-- [ ] Reuse existing endpoint normalization/digest logic to obtain both configured
+- [x] Reuse existing endpoint normalization/digest logic to obtain both configured
   IDs, deduplicating equivalent URLs while preserving current IDs and fallback.
-- [ ] Union the current user's membership through existing API reads and intersect
+- [x] Union the current user's membership through existing API reads and intersect
   the active endpoint list; fail closed on errors and never contact the inactive
   TorrServer. Implement the equivalent guest-local behavior.
-- [ ] Keep claims scoped to the used endpoint. Release both memberships on removal
+- [x] Keep claims scoped to the used endpoint. Release both memberships on removal
   without deleting the server torrent, reporting partial failure and allowing
   idempotent retry without a false success.
-- [ ] Fence results using both URLs and account/selection/operation generations,
+- [x] Fence results using both URLs and account/selection/operation generations,
   including away-and-back changes. Keep selector local and credentials shared.
-- [ ] Add automated shared/different-server, absent-torrent, duplicate/empty URL,
+- [x] Add automated shared/different-server, absent-torrent, duplicate/empty URL,
   hash, failure/retry and identity-race cases; retain original public `drop`
   behavior. Pass ownership/account/ES5 checks and update matching docs.
+
+Task 7 validation (November 9, 2026): My Torrents now reads this user's
+membership under both configured endpoint IDs, deduplicates equivalent normalized
+URLs, and intersects the union with only the active endpoint's live list. Existing
+SHA-256 IDs, public resolver/fallback, local selection, shared credentials and
+endpoint-scoped claims remain intact. Guests use the equivalent local union.
+Removal releases both account memberships sequentially, or both guest memberships
+in one verified local-map write. Success requires every release; partial failure
+notifies and refreshes the originating list, and retries repeat idempotent deletes.
+No server torrent removal or inactive TorrServer request is introduced.
+
+Both URL values, selection, account and scope generations fence pending work,
+including inactive edits, equivalent aliases and away-and-back changes. New lists
+and mutations invalidate stale list results; same-hash operation generations stop
+superseded acknowledgements and delayed claims while independent hash claims
+remain independent. Already sent requests can still commit; guards do not promise
+server transaction cancellation. Public drop and direct playback callbacks retain
+their behavior. Matching backend usage and design guidance were updated.
+
+Added 55 regressions for shared-server aliases and different endpoints, absent
+hashes, normalization/deduplication, canonical hashes, failed union reads, atomic
+guest release, partial account release/retry, identity failures and scope/operation
+races. Existing account/guest isolation, savedb, public-drop and routing checks
+remain covered. `node --test tests/*.test.cjs` passed 642 tests with no skips.
+The pinned ES5 command and separate Acorn checks for every `svtlv/*.js` file and
+`app.min.js`, example-env Compose rendering, existing release/deployment shell
+fixtures and `git diff --check` passed. No shell or backend code changed; Go checks
+are not applicable. No production access, deployment, settings mutation or live
+playback acceptance was performed.
 
 ### Task 8: Make built-in cancellation and timer cleanup safe for other viewers
 

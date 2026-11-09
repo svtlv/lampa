@@ -15,7 +15,11 @@
   var lampa;
   var installed = false;
   var effectiveServer = '';
+  var connection = '';
   var serverGeneration = 0;
+  var listGeneration = 0;
+  var operationGeneration = 0;
+  var operations = {};
   var GUEST_KEY = 'svtlv_torrserver_guest_hashes';
   var strings = {
     en: {
@@ -109,7 +113,13 @@
     }).join('');
   }
 
-  function serverId() {
+  function serverId(url) {
+    if (typeof url != 'string') return '';
+    url = url.replace(/^\s+|\s+$/g, '').toLowerCase().replace(/^https?:\/\//, '').replace(/\/+$/, '');
+    return url ? digest(url) : '';
+  }
+
+  function endpoint() {
     var url;
     // Match torrent operations, including the other-link fallback. Without the
     // public resolver, leave membership unconfigured rather than guess a server.
@@ -117,31 +127,50 @@
       if (typeof lampa.Torserver.ip != 'function') return '';
       url = lampa.Torserver.ip();
     } catch (err) { return ''; }
-    if (typeof url != 'string') return '';
-    url = url.replace(/^\s+|\s+$/g, '').toLowerCase().replace(/^https?:\/\//, '').replace(/\/+$/, '');
-    return url ? digest(url) : '';
+    return serverId(url);
   }
 
-  function observeServer() {
-    var server = serverId();
-    if (server != effectiveServer) {
+  function observeServer(changed) {
+    var server = endpoint();
+    var configured = [lampa.Storage.get('torrserver_url'), lampa.Storage.get('torrserver_url_two'),
+      lampa.Storage.field('torrserver_use_link')];
+    var signature = JSON.stringify(configured);
+    if (changed || server != effectiveServer || signature != connection) {
       effectiveServer = server;
+      connection = signature;
       serverGeneration++;
+      operations = {};
     }
-    return server;
+    // Keep the public resolver authoritative for actual torrent operations.
+    // The other configured addresses supply membership only, never server calls.
+    var servers = server ? [server] : [];
+    if (server) configured.slice(0, 2).forEach(function (url) {
+      var id = serverId(url);
+      if (id && servers.indexOf(id) < 0) servers.push(id);
+    });
+    return {server: server, servers: servers};
   }
 
   function capture() {
     var state = window.svtlv_account_state || {};
-    var server = observeServer();
+    var scope = observeServer();
     return {status: state.status, generation: state.generation, user_id: state.user_id,
-      server: server, server_generation: serverGeneration};
+      server: scope.server, servers: scope.servers, server_generation: serverGeneration};
   }
 
   function current(ctx) {
     var now = capture();
     return now.status == ctx.status && now.generation === ctx.generation &&
-      now.user_id === ctx.user_id && now.server == ctx.server && now.server_generation === ctx.server_generation;
+      now.user_id === ctx.user_id && now.server == ctx.server && now.server_generation === ctx.server_generation &&
+      (ctx.list_generation === undefined || ctx.list_generation === listGeneration) &&
+      (!ctx.hash || operations[ctx.hash] === ctx.operation_generation);
+  }
+
+  function operation(ctx, hash, generation) {
+    ctx.hash = hash;
+    ctx.operation_generation = generation;
+    operations[hash] = generation;
+    listGeneration++;
   }
 
   function known(ctx) {
@@ -180,12 +209,12 @@
     lampa.Listener.send('svtlv_account', {type: 'expired'});
   }
 
-  function request(ctx, method, hash, done) {
+  function request(ctx, method, hash, done, server) {
     try {
       var headers = {'X-Lampa-Expected-User': ctx.user_id};
       if (method != 'GET') headers['X-Lampa-Csrf'] = '1';
       return $.ajax({
-        url: '/api/v1/torrservers/' + ctx.server + '/hashes' + (hash ? '/' + hash : ''),
+        url: '/api/v1/torrservers/' + (server || ctx.server) + '/hashes' + (hash ? '/' + hash : ''),
         type: method,
         dataType: method == 'GET' ? 'json' : 'text',
         cache: false,
@@ -228,11 +257,13 @@
   function guestWrite(ctx, hash, remove) {
     // Never cache this map: another tab may have updated another server/hash.
     var data = guestMap();
-    var hashes = data.servers[ctx.server] || [];
-    var index = hashes.indexOf(hash);
-    if (remove && index >= 0) hashes.splice(index, 1);
-    if (!remove && index < 0) hashes.push(hash);
-    data.servers[ctx.server] = hashes;
+    (remove ? ctx.servers : [ctx.server]).forEach(function (server) {
+      var hashes = data.servers[server] || [];
+      var index = hashes.indexOf(hash);
+      if (remove) hashes = hashes.filter(function (entry) { return entry != hash; });
+      else if (index < 0) hashes.push(hash);
+      data.servers[server] = hashes;
+    });
     var raw = JSON.stringify(data);
     window.localStorage.setItem(GUEST_KEY, raw);
     if (window.localStorage.getItem(GUEST_KEY) !== raw) throw new Error('guest write');
@@ -266,23 +297,36 @@
       }
       try {
         ctx = capture();
+        ctx.list_generation = ++listGeneration;
         if (!known(ctx)) { reject(true); return; }
         if (!ctx.server) {
           // Preserve upstream's unconfigured path, but never expose its result.
-          original.my.call(api.Torserver, function () { reject(false); }, function () { reject(false, arguments, this); });
+          original.my.call(api.Torserver, function () {
+            if (current(ctx)) reject(false);
+          }, function () {
+            if (current(ctx)) reject(false, arguments, this);
+          });
           return;
         }
         if (ctx.status == 'guest') {
-          hashes = guestMap().servers[ctx.server] || [];
+          var map = guestMap();
+          hashes = [];
+          ctx.servers.forEach(function (server) { hashes = hashes.concat(map.servers[server] || []); });
           membersReady = true;
         } else {
-          request(ctx, 'GET', '', function (ok, data) {
-            if (!ok || !data || !Array.isArray(data.hashes) || data.hashes.some(function (hash) { return !canonical(hash); })) {
-              reject(true); return;
-            }
-            hashes = data.hashes.map(canonical);
-            membersReady = true;
-            finish();
+          hashes = [];
+          var remaining = ctx.servers.length;
+          ctx.servers.forEach(function (server) {
+            if (settled || !current(ctx)) return;
+            request(ctx, 'GET', '', function (ok, data) {
+              if (settled) return;
+              if (!ok || !data || !Array.isArray(data.hashes) || data.hashes.some(function (hash) { return !canonical(hash); })) {
+                reject(true); return;
+              }
+              hashes = hashes.concat(data.hashes.map(canonical));
+              membersReady = --remaining === 0;
+              finish();
+            }, server);
           });
         }
         // No delayed original call: Torserver.clear() keeps its existing ordering.
@@ -302,11 +346,13 @@
       api.Torserver[name] = function (object, success, fail) {
         var ctx;
         var saved;
+        var generation = ++operationGeneration;
         try {
           ctx = capture();
           saved = name == 'add' || api.Storage.field('torrserver_savedb');
         } catch (err) { notify('save'); call(fail); return; }
         if (name == 'add' && !known(ctx)) { notify('save'); call(fail); return; }
+        if (saved) listGeneration++;
         function failed(args, receiver) {
           if (name == 'hash' || current(ctx)) call(fail, args, receiver);
         }
@@ -322,8 +368,15 @@
             }
             if (!ctx.server || !saved) { call(success, args, receiver); return; }
             var hash = json && canonical(json.hash);
+            // A later removal/claim of this hash supersedes a delayed add result.
+            if (hash && operations[hash] > generation) {
+              if (name == 'hash') call(success, args, receiver);
+              return;
+            }
+            if (hash) operation(ctx, hash, generation);
             function recorded(ok, error) {
               if (!current(ctx) && !(error && error.expired)) return;
+              listGeneration++;
               if (!ok) notify('save');
               // Playback starts immediately below; explicit Add's success toast
               // must wait for persistence and must never claim a failed save.
@@ -349,7 +402,11 @@
     api.Torserver.remove = function (hash, success, fail) {
       var origin = active();
       var ctx;
+      var settled = false;
       function done(ok, args, receiver) {
+        if (settled) return;
+        settled = true;
+        listGeneration++;
         if (ok) call(success, args, receiver);
         else {
           notify(ctx && !ctx.server ? 'configure' : 'remove');
@@ -361,8 +418,18 @@
         ctx = capture();
         hash = canonical(hash);
         if (!known(ctx) || !ctx.server || !hash) { done(false); return; }
+        operation(ctx, hash, ++operationGeneration);
         if (ctx.status == 'signed_in') {
-          request(ctx, 'DELETE', hash, function (ok) { done(ok); });
+          var index = 0;
+          var release = function () {
+            if (!current(ctx)) return;
+            if (index == ctx.servers.length) { done(true); return; }
+            request(ctx, 'DELETE', hash, function (ok) {
+              if (!ok) { done(false); return; }
+              release();
+            }, ctx.servers[index++]);
+          };
+          release();
         } else {
           guestWrite(ctx, hash, true);
           done(true);
@@ -371,19 +438,22 @@
     };
 
     api.Listener.follow('svtlv_account', function (event) {
-      if (event.type == 'state') refresh();
+      if (event.type == 'state') { observeServer(true); refresh(); }
     });
     if (api.Storage.listener) api.Storage.listener.follow('change', function (event) {
       if (event.name == 'torrserver_url' || event.name == 'torrserver_url_two' || event.name == 'torrserver_use_link') {
         // Observe synchronously: switching away and back before refresh runs must
         // never make an earlier operation's context current again.
-        observeServer();
+        observeServer(true);
         refresh();
       }
     });
     $(window).on('storage', function (event) {
       var change = event.originalEvent || event;
-      if ((!change.key || change.key == GUEST_KEY) && (window.svtlv_account_state || {}).status == 'guest') refresh();
+      if ((!change.key || change.key == GUEST_KEY) && (window.svtlv_account_state || {}).status == 'guest') {
+        listGeneration++;
+        refresh();
+      }
     });
     refresh();
   }

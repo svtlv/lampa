@@ -1071,35 +1071,49 @@ selected-empty differences are restored from upstream; do not replace them with
 a common resolver. Missing/invalid selection retains upstream behavior without
 new normalization or storage writes.
 
-**Effective-server membership.** The add-on takes the effective raw endpoint from
-public `Lampa.Torserver.ip()`, trims and lowercases it, removes its HTTP(S) scheme
-and trailing slashes, then synchronously computes an ES5 SHA-256 digest (64
+**Two-link membership union.** The add-on takes both configured URLs and the
+effective raw endpoint from public `Lampa.Torserver.ip()`, trims and lowercases each,
+removes its HTTP(S) scheme and trailing slashes, then synchronously computes an ES5 SHA-256 digest (64
 lowercase hex characters). This `server_id` does not depend on the page's scheme
 or a short 32-bit hash. Existing URL-1 memberships retain their IDs. Missing
 public API or both URLs empty leaves ownership unconfigured.
 
-Different normalized hosts, paths or ports remain separate membership sets even
+Different normalized hosts, paths or ports retain separate database IDs even
 when URL 1 is a tailnet address and URL 2 a home LAN address for the same physical
-server. Adding under one address never claims ownership under the other. Switching
-to another effective endpoint hides the old rows; switching back restores them.
-Either URL or local selector changes refresh My Torrents, including discarding
-inactive screens. Pending list/add/playback results retain their captured account,
-generation and effective-server checks; stale results cannot affect the other
-server's membership. Shared alias identity is deferred to
-[`docs/backlog/share-torrents-between-torrserver-links.md`](../backlog/share-torrents-between-torrserver-links.md).
+server. Equivalent normalized URLs are deduplicated. My Torrents unions this user's
+membership under both configured URLs and intersects it with the active endpoint's
+live list. It never contacts the inactive TorrServer or tries to detect physical
+server identity. A hash owned through either URL is visible through the other if
+that active server has it; absent hashes and other users' claims stay hidden.
+Adding under one address never claims ownership under the other. Existing rows
+and guest map keys need no migration; replacing a URL leaves its old rows intact
+but outside the current union until that URL is configured again.
+
+Either URL or local selector changes refresh My Torrents and discard inactive
+screens. Pending results capture the account, both URLs, selection and generations.
+Changes away and back, inactive URL edits and equivalent aliases invalidate pending
+work. New lists and membership mutations invalidate older list results; newer
+same-hash operations supersede earlier acknowledgements and delayed add claims.
+Claims for independent hashes remain independent. An already sent request can
+still commit: these guards fence callbacks and subsequent requests, not server
+transactions. Guest storage events also invalidate pending guest lists.
 
 | Operation | Signed-in account | Anonymous guest |
 | --- | --- | --- |
-| List | Intersect the live TorrServer list with this user's database hashes for the server | Intersect it with this browser profile's local hashes for the server |
+| List | Intersect the active live list with this user's membership union under both configured URLs | Intersect it with this browser profile's local union under both URLs |
 | Explicit Add | Original direct add, then claim the canonical returned hash | Original direct add, then record the canonical hash locally |
 | Internal playback-add | Record the returned hash only if `torrserver_savedb` was enabled at invocation | Same rule, with local recording |
-| Remove | Delete only this user's database row | Delete only this browser's local membership |
+| Remove | Release only this user's rows under both configured IDs | Remove from both IDs in one local-map write |
 | Physical deletion | Operator action outside this integration; never send `action: rem` | Same |
 
 Account membership is `(user_id, server_id, hash)`. The backend obtains the user
 only from the authenticated session. A hash can belong to several users; release
 by A preserves B's row and the TorrServer record, including when A was the last
-owner. There is no automatic cleanup or row pruning.
+owner. There is no automatic cleanup or row pruning. Removal sends idempotent
+DELETEs sequentially and reports success only after both succeed. Partial failure
+reports failure and refreshes the originating list; a retry repeats both releases,
+including any row already absent. A 401/409 stops the chain for identity recheck;
+it never retries under a different account. Physical deletion is never a fallback.
 
 **No shared timecodes.** TorrServer's `/viewed` store keeps one position per
 torrent file for everyone on the server, so the fork removes TrackTimecode from
@@ -1125,16 +1139,17 @@ logout confirms guest mode. A previously confirmed guest remains a guest during
 a later refresh outage; a previously signed-in or unknown state cannot become
 a guest from an outage. An ownership `401` fails the current call, immediately
 marks state checking and triggers a session recheck. Calls capture identity,
-server and generation; stale list and membership responses are ignored, and account
-operations never switch into guest storage on a `401` or mode change. Direct playback
+both URLs, selection and generations; stale list and membership responses are ignored.
+Account operations never switch into guest storage on a `401` or mode change. Direct playback
 and its callbacks remain available during session checks and API outages; membership
 recording is skipped when identity was unresolved at invocation or changed before
 TorrServer answered. Session resolution refreshes
 an active My Torrents screen.
 
-Signed-in list lookup and the original TorrServer request start together, keeping
-upstream request-queue timing intact; guest membership is validated before its
-list request. Nothing renders until membership and the live list settle. Explicit
+Signed-in lookups for both membership IDs start alongside the original active
+TorrServer request, keeping upstream request-queue timing intact; guest membership is validated before its
+list request. Nothing renders until every membership lookup and the live list settle.
+Failure of either lookup hides the whole union. Explicit
 Add waits for membership persistence before reporting success; failed or missing
 canonical hashes notify rather than claim success. Playback success does not wait
 for membership persistence and can continue with a notification on recording
@@ -1499,16 +1514,17 @@ The design is complete when:
 - signed-in My Torrents shows only entries claimed by that user, including
   when two users claim the same torrent hash; one user's removal does not
   remove the other's membership or the TorrServer record, even for the last row;
-- each guest browser profile sees only its own server-specific memberships;
+- each guest browser profile sees only its own membership union under the configured URLs;
   guest removal changes only local storage, and login/logout transfers no hashes;
 - existing unowned torrents stay hidden until re-added individually; operator
   deletion hides retained memberships and re-add of the same hash restores them;
 - both TorrServer URL inputs and the local selector retain original upstream per-path
   behavior, including selected-empty differences in parser/auth/status paths;
   selection defaults to `one`, persists locally and alone sends no user-data PUT;
-- membership follows the effective `Torserver.ip()` endpoint; switching to a different
-  normalized alias hides memberships and switching back restores them, including for
-  two addresses reaching the same physical server;
+- My Torrents unions both configured membership IDs and intersects only the active
+  `Torserver.ip()` live list; switching aliases of the same server retains owned hashes,
+  different servers hide absent hashes, claims use the active ID and removal releases both;
+  partial failure never reports success and retries are idempotent;
   HTTP/HTTPS page origins produce the same scheme-free SHA-256 server ID;
 - TrackTimecode is gone: no toggle and no TorrServer `/viewed` reads or writes;
   Lampa's local progress continues to work;

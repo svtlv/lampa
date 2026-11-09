@@ -407,15 +407,29 @@ Identity, either URL, local selector and guest-storage changes also discard inac
 returning from a detail screen fetches a newly filtered list.
 
 Membership routes accept an opaque `server_id` of 1–64 ASCII letters, digits, underscores
-or hyphens. The add-on derives a 64-character lowercase SHA-256 ID from the effective raw
-endpoint returned by public `Lampa.Torserver.ip()`, trimmed, lowercased, stripped of its
-HTTP(S) scheme and trailing slashes. The page's scheme does not affect the ID, and existing
-URL-1 memberships keep their IDs. Different normalized hosts, paths or ports produce
-different IDs even when both links reach the same physical server. Switching links hides
-one membership set and switching back restores it; adding under one address never claims
-ownership under the other. Missing public API or both URLs empty leaves ownership
-unconfigured. Changes to either URL or the local selector refresh My Torrents; pending
-responses remain bound to the captured account and effective server. The backend
+or hyphens. The add-on derives a 64-character lowercase SHA-256 ID for each configured
+URL and the effective raw endpoint returned by public `Lampa.Torserver.ip()`. It trims,
+lowercases and strips the HTTP(S) scheme and trailing slashes before hashing. The page's
+scheme does not affect the ID, and existing memberships keep their IDs. Equivalent URLs
+are deduplicated. Different normalized hosts, paths or ports retain separate database IDs.
+
+My Torrents unions this user's membership under both configured URLs, then intersects
+it with the active endpoint's live list. Only the active TorrServer is contacted. This
+works for LAN/tailnet aliases without detecting physical server identity; different
+servers show a hash only when it exists in the selected server's live list. Claims stay
+scoped to the endpoint used. Removal releases this user's membership under both IDs,
+without deleting the server torrent. Both idempotent DELETEs must succeed before removal
+reports success; partial failure notifies and refreshes the originating list, and a retry
+repeats both releases. A failed membership GET hides the whole union, without a guest or
+unfiltered fallback. Guests use the same union and a single local-map write for removal.
+
+Missing public API or both URLs empty leaves ownership unconfigured. Changes to either
+URL or the local selector refresh My Torrents. Pending responses capture the account,
+both URLs, selection and generations, including changes away and back or equivalent
+aliases. New lists and membership mutations invalidate older list results; newer operations
+on the same hash supersede earlier acknowledgements and delayed add claims. Independent
+hash claims remain independent. These guards discard stale callbacks; an already sent
+request may still commit on the server. The backend
 trims and lowercases a `hash`, then requires 40 or 64 hexadecimal characters.
 
 ### Torrent membership storage and logging
@@ -480,8 +494,8 @@ and torrent membership need the database. The critical database check probes bot
   have independent lists; people sharing a profile share its list. Clearing browser data
   loses memberships without deleting torrents. Login and logout never transfer hashes
   between account and guest storage. Guest removal changes only that map; account removal
-  changes only the authenticated user's database row. Neither sends `action: rem`.
-- Lists intersect membership with the live TorrServer list before rendering. An unresolved
+  releases only the authenticated user's rows under both configured IDs. Neither sends `action: rem`.
+- Lists intersect the membership union with the active TorrServer list before rendering. An unresolved
   session, failed account lookup or corrupt/unavailable guest storage shows an empty state
   and a notification. An initial session outage never guesses guest identity; a guest already
   confirmed in this page lifetime remains a guest during a later refresh outage. A `401`
