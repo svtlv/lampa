@@ -12,6 +12,7 @@ const compose = fs.readFileSync(path.join(root, 'devops/docker-compose.yaml'), '
 const workflow = fs.readFileSync(path.join(root, '.github/workflows/deploy-docker.yaml'), 'utf8');
 const example = fs.readFileSync(path.join(root, 'devops/.env.example'), 'utf8');
 const pin = 'ghcr.io/yourok/torrserver:MatriX.150@sha256:2d02152b804946848f032dcca94fa0f096c8840cff3d37e1ba5400c30f70e16b';
+const jackettPin = 'lscr.io/linuxserver/jackett:v0.24.3030-ls30@sha256:3af37ff2ca5f14da5529b9e2018e384735daf1bf08b99350e1211be863eeae20';
 // Ignore real account/deploy inputs and implicit Compose overrides in the test environment.
 const env = Object.fromEntries(Object.entries(process.env).filter(([key]) =>
   !/^(LAMPA_|COMPOSE_|DOCKER_DEFAULT_PLATFORM$)/.test(key)));
@@ -94,12 +95,68 @@ test('TorrServer liveness uses only the bounded credential-free version endpoint
   assert.equal(health.retries, 5);
 });
 
+test('Jackett preserves its pinned image, s6 identity, no-update environment and complete config bind', t => {
+  const model = config(fixture(t));
+  const server = model.services.jackett;
+  assert.equal(server.image, jackettPin);
+  assert.equal(server.container_name, 'jackett');
+  assert.equal(server.restart, 'unless-stopped');
+  assert.deepEqual(server.environment, {
+    PUID: '1000', PGID: '1000', TZ: 'Asia/Jerusalem',
+    XDG_DATA_HOME: '/config', XDG_CONFIG_HOME: '/config', TMPDIR: '/run/jackett-temp'
+  });
+  // Leave /init and the vendor launcher intact, including --NoUpdates by default.
+  for (const key of ['user', 'command', 'entrypoint', 'depends_on', 'mem_limit', 'memswap_limit', 'cpus', 'pids_limit', 'deploy']) {
+    assert.ok(server[key] == null, key);
+  }
+  assert.deepEqual(server.volumes.map(({type, source, target, read_only}) =>
+    ({type, source, target, read_only: !!read_only})), [
+    {type: 'bind', source: '/opt/svtlvtv/jackett/config', target: '/config', read_only: false}
+  ]);
+  assert.deepEqual(Object.keys(model.services).sort(),
+    ['jackett', 'lampa-api', 'lampa-db', 'lampa-web', 'torrserver']);
+});
+
+test('Jackett keeps its public TCP endpoint and Torznab DNS alias on both networks', t => {
+  const model = config(fixture(t));
+  const server = model.services.jackett;
+  assert.equal(server.ports.length, 1);
+  assert.equal(server.ports[0].published, '9117');
+  assert.equal(server.ports[0].target, 9117);
+  assert.equal(server.ports[0].protocol, 'tcp');
+  assert.ok(!server.ports[0].host_ip || server.ports[0].host_ip === '0.0.0.0');
+  assert.deepEqual(server.networks, {
+    default: {aliases: ['jackett']}, monitoring_external: {aliases: ['jackett']}
+  });
+  for (const network of Object.keys(server.networks)) {
+    assert.ok(model.services.torrserver.networks[network]);
+  }
+});
+
+test('Jackett readiness uses a bounded anonymous health request without searching indexers', t => {
+  const health = config(fixture(t)).services.jackett.healthcheck;
+  assert.deepEqual(health.test, ['CMD', 'curl', '-fsS', '--max-time', '3',
+    '--output', '/dev/null', 'http://127.0.0.1:9117/health']);
+  assert.equal(health.interval, '30s');
+  assert.equal(health.timeout, '5s');
+  assert.equal(health.start_period, '30s');
+  assert.equal(health.retries, 5);
+});
+
+test('Compose rejects an invalid Jackett port mapping', t => {
+  const result = render(fixture(t, compose.replace('9117:9117/tcp', 'invalid:9117/tcp')));
+  assert.ifError(result.error);
+  assert.notEqual(result.status, 0);
+  assert.match(result.stderr, /port/i);
+});
+
 for (const environment of ['Test', 'Production', '']) {
   test('Compose preserves the API environment and vendor service: ' + (environment || 'default'), t => {
     const dotenv = example.replace(/^LAMPA_ENVIRONMENT=.*$/m, environment ? 'LAMPA_ENVIRONMENT=' + environment : '');
     const model = config(fixture(t, compose, dotenv));
     assert.equal(model.services['lampa-api'].environment.LAMPA_ENVIRONMENT, environment || 'Test');
     assert.equal(model.services.torrserver.image, pin);
+    assert.equal(model.services.jackett.image, jackettPin);
   });
 }
 
@@ -122,7 +179,7 @@ test('Compose rejects an invalid TorrServer port mapping', t => {
   assert.match(result.stderr, /port/i);
 });
 
-test('the actual release transformation keeps TorrServer intact and rewrites only local images', t => {
+test('the actual release transformation keeps vendor services intact and rewrites only local images', t => {
   const dir = fixture(t);
   const before = config(dir);
   const script = workflowScript('Prepare docker-compose for release');
@@ -137,6 +194,7 @@ test('the actual release transformation keeps TorrServer intact and rewrites onl
   assert.equal(transformed.status, 0, transformed.stderr);
   const after = config(dir);
   assert.deepEqual(after.services.torrserver, before.services.torrserver);
+  assert.deepEqual(after.services.jackett, before.services.jackett);
   assert.deepEqual(after.networks, before.networks);
   assert.deepEqual(after.volumes, before.volumes);
   for (const service of ['web', 'api']) {

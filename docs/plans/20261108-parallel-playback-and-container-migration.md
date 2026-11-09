@@ -335,17 +335,37 @@ or live acceptance were performed.
 - Modify: `devops/docker-compose.yaml`, `devops/.env.example` if needed
 - Modify: `.github/workflows/deploy-docker.yaml` only for necessary env wiring
 
-- [ ] Define `jackett` with the selected latest-stable release/digest, effective
+- [x] Define `jackett` with the selected latest-stable release/digest, effective
   in-container no-update behavior,
   UID/GID/TZ/environment, restart policy and `9117/tcp` host bindings.
-- [ ] Mount `/opt/svtlvtv/jackett/config:/config` directly; do not regenerate
+- [x] Mount `/opt/svtlvtv/jackett/config:/config` directly; do not regenerate
   ServerConfig, indexers, cookies, DataProtection state or API/admin credentials.
-- [ ] Preserve alias `jackett` on the default and monitoring networks and the
+- [x] Preserve alias `jackett` on the default and monitoring networks and the
   TorrServer Torznab route. Add no FlareSolverr/VPN or unused downloads mount.
-- [ ] Define supported liveness/readiness and document expected failures without
+- [x] Define supported liveness/readiness and document expected failures without
   requiring a running production container or revealing private configuration.
-- [ ] Validate Compose/env fixtures and the declared image, mount, identity,
+- [x] Validate Compose/env fixtures and the declared image, mount, identity,
   environment, port and network contracts with applicable local checks.
+
+Task 3 validation (November 9, 2026): the official LinuxServer latest-release
+API and raw registry-index SHA-256 still confirm v0.24.3030-ls30 and the selected
+pin, including linux/amd64 and linux/arm64. Matching tagged image/launcher sources
+preserve the root s6 supervisor, PUID/PGID, configuration paths and effective
+`--NoUpdates` with `AUTO_UPDATE` absent. The matching application's anonymous
+`GET /health` returns a constant status without indexer searches or credentials;
+the base image supplies curl. Added its bounded healthcheck and documented failure
+modes and the distinction between HTTP readiness and working indexer/Torznab access.
+
+Four new daemon-free fixture tests cover Jackett's runtime/data/network and
+healthcheck contracts and invalid ports. Existing environment and actual release
+transformation tests now also verify Jackett's unchanged pin/service definition.
+`node --test tests/*.test.cjs` passed 538 tests with no skips; the pinned ES5 gate,
+example-env Compose rendering, release-transformation tests, all 12 deployment
+shell blocks (`bash -n`), inventory local links and `git diff --check` passed.
+No new environment variables or deployment-workflow changes were needed. Backend
+code did not change, so Go checks are not applicable. No containers were started;
+production access, deployment, settings writes and live acceptance were not
+performed. Task 4 retains responsibility for the release readiness wait.
 
 ### Task 4: Include both services in every normal full-stack deployment
 

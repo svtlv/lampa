@@ -178,6 +178,30 @@ include indexer API/cookie changes. Preserving files is not proof that every
 indexer remains functional after upgrading from v0.24.2475. Saved-data,
 credential and consumer comparisons belong to later live acceptance.
 
+### Jackett liveness and readiness
+
+The Compose healthcheck makes a bounded, container-local `GET /health` with curl,
+which the image's [Alpine base](https://github.com/linuxserver/docker-baseimage-alpine/blob/3.24/Dockerfile)
+supplies. The matching [health controller](https://github.com/Jackett/Jackett/blob/v0.24.3030/src/Jackett.Server/Controllers/HealthcheckController.cs)
+allows anonymous GET/HEAD and returns a constant status response. It does not
+authenticate, read private configuration, search indexers or invoke Torznab.
+The recorded null base path and port 9117 support the exact local URL in Compose.
+No API key, admin password or new environment variable is required.
+
+The probe allows three seconds per request, with a five-second Docker timeout,
+a 30-second startup grace period and five retries at 30-second intervals. A
+connection refusal, timeout or HTTP error fails the probe. Slow initialization,
+unreadable configuration, permission errors or an application crash can leave it
+starting or unhealthy. A future change to the stored port/base path would also
+require updating this probe. Keep private configuration and credentials out of
+failure reports. Docker health status alone does not restart an unhealthy process;
+the preserved `unless-stopped` policy handles process exit.
+
+Healthy means the HTTP application is responding. It does not establish working
+indexer credentials, upstream availability, saved-data preservation or TorrServer
+Torznab connectivity. Those checks remain in the later manual handover. The
+release workflow's explicit readiness wait is implemented in the next plan task.
+
 ## Known unknowns and later operational context
 
 | Item not established by the snapshot | Meaning for the later handover |

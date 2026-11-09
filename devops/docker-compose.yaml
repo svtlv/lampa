@@ -120,6 +120,39 @@ services:
         aliases:
           - torrserver
 
+  jackett:
+    image: lscr.io/linuxserver/jackett:v0.24.3030-ls30@sha256:3af37ff2ca5f14da5529b9e2018e384735daf1bf08b99350e1211be863eeae20
+    container_name: jackett
+    restart: unless-stopped
+    # retain the root s6 supervisor; it runs Jackett as PUID:PGID.
+    # AUTO_UPDATE stays absent so the vendor launcher uses --NoUpdates.
+    environment:
+      PUID: "1000"
+      PGID: "1000"
+      TZ: Asia/Jerusalem
+      XDG_DATA_HOME: /config
+      XDG_CONFIG_HOME: /config
+      TMPDIR: /run/jackett-temp
+    ports:
+      - "9117:9117/tcp"
+    volumes:
+      # active persistent data, including credentials; retain this path under /opt
+      - /opt/svtlvtv/jackett/config:/config
+    healthcheck:
+      # anonymous HTTP readiness only; no indexer search or Torznab request
+      test: ["CMD", "curl", "-fsS", "--max-time", "3", "--output", "/dev/null", "http://127.0.0.1:9117/health"]
+      interval: 30s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
+    networks:
+      default:
+        aliases:
+          - jackett
+      monitoring_external:
+        aliases:
+          - jackett
+
 networks:
   monitoring_external:
     external: true
