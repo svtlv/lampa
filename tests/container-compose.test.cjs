@@ -49,6 +49,15 @@ function workflowScript(name) {
   return script.replace(/^          /gm, '');
 }
 
+test('PostgreSQL is reachable only through the host loopback port', t => {
+  const database = config(fixture(t)).services['lampa-db'];
+  assert.equal(database.ports.length, 1);
+  assert.equal(database.ports[0].host_ip, '127.0.0.1');
+  assert.equal(database.ports[0].published, '5434');
+  assert.equal(database.ports[0].target, 5432);
+  assert.equal(database.ports[0].protocol, 'tcp');
+});
+
 test('TorrServer retains its image, runtime, data, public TCP port and both network aliases', t => {
   const model = config(fixture(t));
   const server = model.services.torrserver;

@@ -1365,6 +1365,148 @@ test('same-hash operation acknowledgements cannot supersede newer removal or cla
   assert.equal(removed, 0);
 });
 
+// Apply a mutation only when its controlled transport completes. Callback fences
+// alone cannot undo these persisted rows, so the final state matters too.
+function membershipStore() {
+  const rows = new Map();
+  function hashes(user, server) {
+    const key = user + '/' + server;
+    if (!rows.has(key)) rows.set(key, new Set());
+    return rows.get(key);
+  }
+  return {
+    hashes,
+    commit(request) {
+      const {config} = request;
+      const values = hashes(config.headers['X-Lampa-Expected-User'], membershipServer(request));
+      const hash = config.url.split('/').at(-1);
+      if (config.type === 'PUT') values.add(hash);
+      else { assert.equal(config.type, 'DELETE'); values.delete(hash); }
+      request.success('');
+    }
+  };
+}
+
+test('removal waits for an in-flight claim before releasing both persisted memberships', () => {
+  const p = page({state: account(), settings: twoLinks}), store = membershipStore();
+  const servers = Object.values(twoLinks).map(id);
+  for (const server of servers) store.hashes('Alice', server).add(Y);
+  store.hashes('Alice', servers[1]).add(X);
+  let saved = 0, removed = 0;
+  p.Lampa.Torserver.add({}, () => saved++);
+  p.calls[0].success({hash: X});
+  const earlier = p.requests[0];
+  p.Lampa.Torserver.remove(X, () => removed++);
+  assert.equal(p.requests.length, 1, 'a DELETE cannot overtake the outstanding PUT');
+  assert.equal(removed, 0);
+  store.commit(earlier);
+  assert.equal(saved, 0, 'the superseded claim has no success acknowledgement');
+  assert.equal(p.requests[1].config.type, 'DELETE');
+  earlier.success(''); earlier.fail(401);
+  assert.equal(p.requests.length, 2, 'duplicate replies must not advance the queue again');
+  assert.equal(p.window.svtlv_account_state.status, 'signed_in');
+  store.commit(p.requests[1]);
+  assert.equal(removed, 0, 'both endpoint rows must be released before success');
+  store.commit(p.requests[2]);
+  assert.equal(removed, 1);
+  assert.deepEqual(servers.map(server => [...store.hashes('Alice', server)]), [[Y], [Y]]);
+});
+
+test('a new claim waits for an in-flight removal and survives its late completion', () => {
+  const p = page({state: account(), settings: twoLinks}), store = membershipStore();
+  const server = id(twoLinks.torrserver_url);
+  store.hashes('Alice', server).add(X);
+  let saved = 0, removed = 0;
+  p.Lampa.Torserver.remove(X, () => removed++);
+  const earlier = p.requests[0];
+  p.Lampa.Torserver.add({}, () => saved++);
+  p.calls[0].success({hash: X});
+  assert.equal(p.requests.length, 1, 'a PUT cannot overtake the outstanding DELETE');
+  store.commit(earlier);
+  assert.equal(store.hashes('Alice', server).has(X), false);
+  assert.equal(p.requests[1].config.type, 'PUT');
+  assert.equal(p.requests.length, 2, 'superseded removal cannot release the second endpoint');
+  store.commit(p.requests[1]);
+  earlier.success(''); earlier.fail(401);
+  assert.equal(store.hashes('Alice', server).has(X), true);
+  assert.equal(saved, 1); assert.equal(removed, 0);
+  assert.equal(p.window.svtlv_account_state.status, 'signed_in');
+});
+
+test('scope changes retain transport ordering while skipping stale queued mutations', () => {
+  const p = page({state: account(), settings: twoLinks}), store = membershipStore();
+  let stale = 0, saved = 0;
+  p.Lampa.Torserver.add({}, () => stale++);
+  p.calls[0].success({hash: X});
+  p.Lampa.Torserver.remove(X, () => stale++, () => stale++);
+  switchAwayAndBack(p);
+  p.Lampa.Torserver.add({}, () => saved++);
+  p.calls[1].success({hash: X});
+  assert.equal(p.requests.length, 1, 'scope reset must not discard the pending transport');
+  store.commit(p.requests[0]);
+  assert.equal(p.requests.length, 2);
+  assert.equal(p.requests[1].config.type, 'PUT', 'the stale queued DELETE must never be sent');
+  store.commit(p.requests[1]);
+  assert.equal(store.hashes('Alice', id(twoLinks.torrserver_url)).has(X), true);
+  assert.equal(saved, 1); assert.equal(stale, 0);
+  assert.equal(p.notices.length, 0);
+});
+
+for (const outcome of ['http', 'timeout', 'unexpected status']) test('failed claim releases a queued removal: ' + outcome, () => {
+  const p = page({state: account(), settings: twoLinks}), store = membershipStore();
+  const servers = Object.values(twoLinks).map(id);
+  for (const server of servers) store.hashes('Alice', server).add(X);
+  let removed = 0;
+  p.Lampa.Torserver.add({}); p.calls[0].success({hash: X});
+  p.Lampa.Torserver.remove(X, () => removed++);
+  if (outcome === 'unexpected status') p.requests[0].success('', 200);
+  else if (outcome === 'timeout') p.requests[0].config.error({status: 0}, 'timeout');
+  else p.requests[0].fail(503);
+  assert.equal(p.requests[1].config.type, 'DELETE');
+  store.commit(p.requests[1]); store.commit(p.requests[2]);
+  assert.equal(removed, 1);
+  assert.deepEqual(servers.map(server => [...store.hashes('Alice', server)]), [[], []]);
+});
+
+test('synchronous transport failure releases the queue for a later removal retry', () => {
+  const options = {state: account(), settings: twoLinks};
+  const p = page(options), store = membershipStore();
+  let removed = 0, failed = 0;
+  p.Lampa.Torserver.add({}); p.calls[0].success({hash: X});
+  p.Lampa.Torserver.remove(X, () => removed++, () => failed++);
+  options.ajaxThrows = true;
+  store.commit(p.requests[0]);
+  assert.equal(failed, 1); assert.equal(removed, 0);
+  options.ajaxThrows = false;
+  p.Lampa.Torserver.remove(X, () => removed++, () => failed++);
+  assert.equal(p.requests[1].config.type, 'DELETE');
+  store.commit(p.requests[1]); store.commit(p.requests[2]);
+  assert.equal(removed, 1); assert.equal(failed, 1);
+  assert.equal(store.hashes('Alice', id(twoLinks.torrserver_url)).has(X), false);
+});
+
+test('pending mutations do not block independent hashes, endpoints or account owners', () => {
+  const p = page({state: account(), settings: twoLinks}), store = membershipStore();
+  let saved = 0;
+  const claim = hash => {
+    p.Lampa.Torserver.add({}, () => saved++);
+    p.calls.at(-1).success({hash});
+  };
+  claim(X); claim(Y);
+  assert.equal(p.requests.length, 2, 'another hash can persist while X is pending');
+  store.commit(p.requests[1]); assert.equal(saved, 1);
+  p.select('two'); claim(X);
+  assert.equal(p.requests.length, 3, 'another endpoint can persist while the first is pending');
+  p.setState(account('Bob', 2)); claim(X);
+  assert.equal(p.requests.length, 4, 'another user must not wait for the prior user');
+  store.commit(p.requests[3]); assert.equal(saved, 2);
+  store.commit(p.requests[2]); store.commit(p.requests[0]);
+  assert.equal(saved, 2, 'stale owners/endpoints receive no acknowledgement');
+  assert.deepEqual([...store.hashes('Alice', id(twoLinks.torrserver_url))], [Y, X]);
+  assert.deepEqual([...store.hashes('Alice', id(twoLinks.torrserver_url_two))], [X]);
+  assert.deepEqual([...store.hashes('Bob', id(twoLinks.torrserver_url_two))], [X]);
+});
+
 test('independent hash claims keep their callbacks and active-endpoint scope', () => {
   const p = page({state: account(), settings: twoLinks});
   let saved = 0;

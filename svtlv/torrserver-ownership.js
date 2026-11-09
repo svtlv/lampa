@@ -20,6 +20,7 @@
   var listGeneration = 0;
   var operationGeneration = 0;
   var operations = {};
+  var mutations = {};
   var GUEST_KEY = 'svtlv_torrserver_guest_hashes';
   var strings = {
     en: {
@@ -210,33 +211,50 @@
   }
 
   function request(ctx, method, hash, done, server) {
-    try {
-      var headers = {'X-Lampa-Expected-User': ctx.user_id};
-      if (method != 'GET') headers['X-Lampa-Csrf'] = '1';
-      return $.ajax({
-        url: '/api/v1/torrservers/' + (server || ctx.server) + '/hashes' + (hash ? '/' + hash : ''),
-        type: method,
-        dataType: method == 'GET' ? 'json' : 'text',
-        cache: false,
-        timeout: 15000,
-        headers: headers,
-        success: function (data, status, xhr) {
-          if (!current(ctx)) return;
-          if (xhr && xhr.status != (method == 'GET' ? 200 : 204)) { done(false); return; }
-          done(true, data);
-        },
-        error: function (xhr) {
-          if (!current(ctx)) return;
-          // A different tab can replace the shared cookie without updating this
-          // page's snapshot. A mismatch must recheck identity, never retry a write.
-          var expired = xhr && (xhr.status == 401 || xhr.status == 409);
-          if (expired) expire(ctx);
-          done(false, {expired: expired});
+    server = server || ctx.server;
+    // Keep transport ordering across scope changes: ignoring an old callback
+    // cannot undo its write. Other users, endpoints and hashes stay independent.
+    var key = method == 'GET' ? '' : JSON.stringify([ctx.user_id, server, hash]);
+    var queue = key ? mutations[key] || (mutations[key] = []) : null;
+    var settled = false;
+    function answer(ok, data, xhr) {
+      if (settled) return;
+      settled = true;
+      try {
+        if (!current(ctx)) return;
+        var expired = !ok && xhr && (xhr.status == 401 || xhr.status == 409);
+        if (expired) expire(ctx);
+        done(ok, ok ? data : {expired: expired});
+      } finally {
+        // Stale responses must still release newer work waiting for this write.
+        if (queue) {
+          queue.shift();
+          if (queue.length) queue[0]();
+          else delete mutations[key];
         }
-      });
-    } catch (err) {
-      done(false);
+      }
     }
+    function send() {
+      try {
+        if (!current(ctx)) { answer(false); return; }
+        var headers = {'X-Lampa-Expected-User': ctx.user_id};
+        if (method != 'GET') headers['X-Lampa-Csrf'] = '1';
+        return $.ajax({
+          url: '/api/v1/torrservers/' + server + '/hashes' + (hash ? '/' + hash : ''),
+          type: method,
+          dataType: method == 'GET' ? 'json' : 'text',
+          cache: false,
+          timeout: 15000,
+          headers: headers,
+          success: function (data, status, xhr) {
+            answer(!xhr || xhr.status == (method == 'GET' ? 200 : 204), data, xhr);
+          },
+          error: function (xhr) { answer(false, null, xhr); }
+        });
+      } catch (err) { answer(false); }
+    }
+    if (queue) queue.push(send);
+    if (!queue || queue.length == 1) return send();
   }
 
   function guestMap() {

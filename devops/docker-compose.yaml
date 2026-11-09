@@ -1,5 +1,7 @@
 # local runs build the images from this file: copy .env.example to .env, then
-# docker-compose up -d --build
+# docker compose -p lampa up -d --build lampa-web lampa-api
+# starting vendor services also uses fixed names/ports and existing absolute binds;
+# follow docs/container-migration-runbook.md before their initial adoption.
 #
 # the deploy workflow swaps every "<service>:dev" image for its ghcr.io latest tag and deletes each
 # build block with sed, from its build key line through its dockerfile line, so the layout of
@@ -42,7 +44,7 @@ services:
       POSTGRES_PASSWORD: ${LAMPA_DB_PASSWORD:?Set LAMPA_DB_PASSWORD for the lampa database role}
     ports:
       # loopback only: reachable by a Development "go run" on the host, never from outside
-      - "5434:5432"
+      - "127.0.0.1:5434:5432"
     volumes:
       # postgres 18+ images keep PGDATA in a versioned subdirectory of /var/lib/postgresql
       - lampa_db_data:/var/lib/postgresql
