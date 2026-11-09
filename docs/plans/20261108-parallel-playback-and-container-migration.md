@@ -697,16 +697,69 @@ Tasks 11–12 remain unimplemented.
 - Modify: this plan to record repository check results
 - Modify: affected tests/configuration only if a check reveals an implementation issue
 
-- [ ] Run `node --test tests/*.test.cjs` and
+- [x] Run `node --test tests/*.test.cjs` and
   `npx --yes acorn@8.14.0 --ecma5 --silent svtlv/*.js app.min.js`.
-- [ ] Run `docker compose -f devops/docker-compose.yaml --env-file devops/.env.example config --quiet`,
+- [x] Run `docker compose -f devops/docker-compose.yaml --env-file devops/.env.example config --quiet`,
   validate the release transformation locally, and syntax-check changed shell.
-- [ ] Run applicable Go checks only if backend code changes; report actual check
+- [x] Run applicable Go checks only if backend code changes; report actual check
   coverage and any missing tooling honestly, without asking for a release/deploy.
-- [ ] Verify every agreed feature has its code/configuration/docs and automated
+- [x] Verify every agreed feature has its code/configuration/docs and automated
   coverage, and all operational scenarios are documented in the final handover.
-- [ ] Record repository results separately from unperformed live acceptance.
+- [x] Record repository results separately from unperformed live acceptance.
   Finish this task without production access, manual playback or owner input.
+
+Task 11 validation (November 9, 2026): repository acceptance passed locally
+on macOS/arm64 with Node v24.21.0, npm 11.19.0, Docker Compose v5.6.1,
+Python 3.9.6 and Bash 3.2.57. The full `node --test tests/*.test.cjs` suite
+passed 720 tests, with zero failures, cancellations or skips. The specified
+`npx --yes acorn@8.14.0 --ecma5 --silent svtlv/*.js app.min.js` command and
+separate pinned Acorn parses of every add-on and the bundle passed.
+
+Example-env Compose rendering passed. The suite executed the actual release
+transformation against temporary fixtures, confirmed unchanged vendor service
+pins/configuration, networks and volumes, and checked web/API image rewriting and
+build-block removal. On macOS the fixture adapts only the BSD `sed -i` backup
+argument; the Linux deployment workflow was not executed. Missing/empty required
+environment fields, malformed secrets and invalid ports were rejected. All 12
+deployment shell blocks plus the remote body passed `bash -n` in the suite;
+additional syntax checks passed for all 14 multiline CI/deployment blocks and
+`devops/measure-playback.sh`. Sixteen inventory/runbook/validation local links
+and anchors, four documented shell snippets (syntax only), JSON/JSONL examples
+and `git diff --check` passed.
+
+Feature-to-deliverable review confirmed the following coverage; the full suite
+also retains the existing account, settings, loader, routing and documentation
+guards. No implementation defect required code/configuration changes or new tests
+in this acceptance-only task.
+
+| Agreed behavior | Implementation and automated coverage | Handover documentation |
+| --- | --- | --- |
+| Stable vendor pins, exact retained binds, ports, aliases, runtime and non-stream healthchecks | `devops/docker-compose.yaml`; `tests/container-compose.test.cjs` | Inventory and runbook |
+| Full-stack release lifecycle, shared readiness deadline and bounded failure reporting | `.github/workflows/deploy-docker.yaml`; `tests/deployment-workflow.test.cjs` and release-rendering fixtures | Runbook cutover, rollback and later redeployment |
+| Accurate account phases, save intent, bounded private-data-free diagnostics and client isolation | `svtlv/account-sync.js`; `tests/account-sync.test.cjs` and `tests/account-state.test.cjs` | Validation workload matrix and actual account-warning handover |
+| Two-link membership union, active-list intersection, endpoint claims, both-ID release and identity/race fences | `svtlv/torrserver-ownership.js`; `tests/torrserver-ownership.test.cjs`, `tests/torrserver-one-link.test.cjs` and `tests/ownership-docs.test.cjs` | Backend README, sync design and validation matrix |
+| Local cancellation, terminal timers, stale-response rejection, preserved public drop/Timeline and paused-reader behavior | Marked `app.min.js` edits; `tests/torrserver-playback.test.cjs` plus ownership/routing checks | Validation lifecycle cases and reader-expiry limits |
+| Bounded read-only resource collection, generations, missing metrics, annotations and redaction | `devops/measure-playback.sh`, `devops/measure-playback.py`; `tests/playback-measurement.test.cjs` | Validation usage, result format and fixture examples |
+| Staged unverified tuning, complete-settings apply/readback/rollback, three-viewer 1080p and unrestricted single-viewer 4K acceptance | Documentation-only candidates; collector fixtures check documented shell/JSON examples; no candidate settings applied | Validation candidate units/math, workload matrix, stop gates and final plan handover |
+
+The final handover covers initial old-writer shutdown and consistent backups,
+fixed-name/port release, exact-bind adoption, private data/credential comparisons,
+upgrade-aware recovery, retained `/opt/svtlvtv/jackett/config`, obsolete-source
+cleanup, later redeployment, LAN/tailnet playback, search overhead, account/guest
+and membership isolation, repeated cancellation/seek/startup, 60-minute sustain,
+10-minute cleanup and optional mixed/three-4K trials. Numeric host thresholds,
+live measurements and settings promotion remain later owner-operated work.
+
+Backend changes since implementation began are confined to `backend/README.md`;
+no Go code, module, migrations or backend build configuration changed. Go lint,
+test and race checks are therefore not applicable and were not run. No required
+local check was unavailable or skipped. Linux CI, the destination's Compose v1,
+image/runtime execution, real browser/TV playback, production access, deployment,
+shutdown, backup, settings writes, collection and live acceptance were not
+performed. Automated checks establish repository behavior, not a reproduced
+production incident, successful migration or measured playback capacity.
+Task 12 remains unimplemented; backlog cleanup, final guidance and archival are
+reserved for that iteration.
 
 ### Task 12: Finalize docs, remove resolved backlog items and archive the plan
 
