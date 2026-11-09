@@ -97,4 +97,4 @@ jobs:
         run: docker compose -f devops/docker-compose.yaml --env-file devops/.env.example config --quiet
 
       - name: Test service contracts and release rendering
-        run: node --test tests/container-compose.test.cjs
+        run: node --test tests/container-compose.test.cjs tests/deployment-workflow.test.cjs

@@ -373,16 +373,37 @@ performed. Task 4 retains responsibility for the release readiness wait.
 - Modify: `.github/workflows/deploy-docker.yaml`
 - Modify: `.github/workflows/tests.yaml` only for changed automated checks
 
-- [ ] Retain full-stack pull/down/up so TorrServer and Jackett redeploy with
+- [x] Retain full-stack pull/down/up so TorrServer and Jackett redeploy with
   Lampa even when unchanged. Preserve project/volume identity and manual trigger.
-- [ ] Keep vendor pins intact through release image rewriting/build-block removal;
+- [x] Keep vendor pins intact through release image rewriting/build-block removal;
   preserve environment handling, monitoring network and existing API health wait.
-- [ ] Implement needed TorrServer/Jackett readiness and failed-startup reporting;
+- [x] Implement needed TorrServer/Jackett readiness and failed-startup reporting;
   keep the release path simple, without release-time Compose grep guards.
-- [ ] Add no old-project takeover, data copying, settings rewrite or `/opt`
+- [x] Add no old-project takeover, data copying, settings rewrite or `/opt`
   deletion logic. Preserve existing mounts and normal data-volume retention.
-- [ ] Validate workflow shell syntax, rendered release Compose and relevant
+- [x] Validate workflow shell syntax, rendered release Compose and relevant
   automated checks without dispatching a workflow or deploying anything.
+
+Task 4 validation (November 9, 2026): the deployment retains the manual/default-
+branch/environment gates, web/API-only build matrix, project/volume identity,
+monitoring network and full-stack pull/down/up sequence. Release rendering still
+preserves both pinned vendor definitions. A shared three-minute health wait now
+requires the API, TorrServer and Jackett to be running and healthy together.
+Failed startup or readiness reports selected container state/health/exit/OOM/restart
+fields and retains the existing bounded API log output; it does not print vendor
+logs, configuration or health-probe output. No takeover, data/settings mutation,
+old-project shutdown, bind deletion or deployment-time Compose grep guard was added.
+
+Fourteen new daemon-free workflow tests exercise the actual remote shell body,
+including delayed readiness, missing/no-healthcheck/exited/restarting/unhealthy
+services, health regression during startup, failed Compose startup, pull failure
+before shutdown and unchanged full-stack command ordering. CI runs these alongside
+the Compose fixtures. `node --test tests/*.test.cjs` passed 552 tests with no skips;
+the pinned ES5 gate, example-env Compose rendering, actual release-transformation
+fixtures, all 12 deployment shell blocks plus the remote body (`bash -n`), and
+`git diff --check` passed. Backend code did not change, so Go checks are not
+applicable. No workflow dispatch, container startup, production access, deployment,
+settings writes or live acceptance was performed.
 
 ### Task 5: Write the manual handover documentation
 
