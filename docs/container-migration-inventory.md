@@ -233,14 +233,15 @@ private configuration; it does not automatically roll back.
 Neither service had explicit CPU/memory/swap/PID limits or Docker healthchecks
 at the snapshot. Both used `json-file` logging without explicit container rotation.
 The repository definitions now add non-streaming healthchecks and preserve the
-existing live settings without unmeasured resource caps; later plan tasks document
-measurement candidates. The November 7 global OOM proves
+existing live settings without unmeasured resource caps. The delivered
+[validation procedure](parallel-playback-validation.md) documents staged
+unverified measurement candidates. The November 7 global OOM proves
 TorrServer was killed, not that a leak or initiating request was identified.
 
 These unknowns do not block repository implementation or request owner action
 during it. Shutdown, backup, deployment, cleanup and live verification belong
 exclusively to the [manual runbook](container-migration-runbook.md) and the
-implementation plan's post-implementation handover. This
+[completed plan's post-implementation handover](plans/completed/20261108-parallel-playback-and-container-migration.md#post-implementation-handover-all-owner-operated-actions). This
 inventory claims neither successful migration nor measured three-viewer capacity.
 
 Repository operational artifacts remain under the existing `docs/`, `devops/`

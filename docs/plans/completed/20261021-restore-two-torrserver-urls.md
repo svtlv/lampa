@@ -16,7 +16,9 @@ this implementation: each has its own My Torrents ownership list. Saving under
 one address does not automatically claim the torrent under the other. Shared
 identity or alias mapping is outside this plan.
 Sharing owned torrents across both links is deferred in
-[`docs/backlog/share-torrents-between-torrserver-links.md`](../../backlog/share-torrents-between-torrserver-links.md).
+[the later cross-link implementation](20261108-parallel-playback-and-container-migration.md#task-7-share-owned-torrents-across-the-two-configured-links)
+(commit `6972aea`). That later change unions the two IDs for display and releases
+both memberships on removal; the separate database identities are retained.
 
 ## Context (from discovery)
 

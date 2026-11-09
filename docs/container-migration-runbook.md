@@ -271,3 +271,19 @@ runtime boundaries. No caps, GC knobs, rate restrictions or disk-cache conversio
 are applied here. Record sanitized outcomes in the acceptance document and retain
 private JSONL/settings evidence separately. Repository checks establish no live
 incident fix or measured capacity.
+
+## Implementation completion and remaining follow-up
+
+Repository work is complete in the
+[archived plan](plans/completed/20261108-parallel-playback-and-container-migration.md).
+The [API/add-on guide](../backend/README.md#playback-and-container-handover)
+describes final account error/diagnostic, membership and cancellation behavior.
+Repository checks passed; no production cutover, settings write, live trial or
+capacity acceptance was performed. Keep the manual actions in this runbook
+separate from those implementation results.
+
+The [incident/capacity follow-up](backlog/parallel-playback-resource-peaks-and-configuration.md)
+retains the untraced production warning, OOM attribution and unmeasured playback
+objectives. Close it only with live evidence. The resolved account classification
+and cross-link implementation backlog files were deleted; their changes are
+`dadd0cd` and `6972aea` respectively.

@@ -292,13 +292,13 @@ address typed into its URL dialog, so the document origin is the Lampa site and
 first-party cookies apply (the app has no cookie code; WebView defaults accept
 and persist them). Its saved address must equal the configured public URL.
 
-The production deployment is reachable only inside the Tailscale network, at
-`http://svtlv:8092` (bound to `100.105.140.19:8092`). WireGuard encrypts that
-link, but browsers treat it as plain HTTP: a `Secure` cookie is never stored
-there. So every Lampa cookie (session, login and device flow) carries `Secure`
+The tailnet URL is `http://svtlv:8092`. The current Compose publication is
+`8092:80` on all host interfaces, also permitting LAN access; it does not itself
+enforce tailnet-only access. WireGuard encrypts traffic over the tailnet route,
+but browsers treat it as plain HTTP: a `Secure` cookie is never stored there. So every Lampa cookie (session, login and device flow) carries `Secure`
 only when the public URL is `https://`; `HttpOnly` and `SameSite=Lax` always
-apply. The release Compose file binds the Lampa port to the Tailscale address;
-the deploy workflow verifies that mapping before deploying.
+apply. Use HTTPS for access outside a trusted network. The release workflow
+preserves the checked-in web publication without an exact-address guard.
 
 Keycloak may likewise be reached over HTTP inside the tailnet. The configured
 issuer must equal, character for character, the `iss` Keycloak puts in its
@@ -1230,8 +1230,19 @@ everything and leaves CUB's icon visible when `location.protocol` is not
 
 - No server document: keep and upload guest data only on first login without a
   previous owner's marker; clear another account's values first (§6.3).
-- Network, 5xx or invalid `200`: keep local edits dirty, notify "Not saved to
-  Account" once per failure streak, and retry on a later trigger.
+- Network, 5xx or invalid `200`: keep local edits dirty and retry on a later
+  trigger. Use caller intent: unchanged background reads report "Could not
+  refresh Account data"; a failed PUT or read required for dirty saves reports
+  "Not saved to Account". Startup, account load, apply and storage failures
+  have separate English/Russian messages. Suppress repeated notices per failure
+  streak; successful recovery permits future relevant notices.
+- `window.svtlv_sync_diagnostics()` returns copies of at most 40 page-local
+  records: `phase`, `method`, `status`, `category`, `elapsed_ms`, `duration_ms`.
+  Phases include boot/load/apply/background-read/save-preflight/save/storage.
+  No URLs, identities, headers, bodies, setting names/values or exception text
+  are retained or transmitted. Use the [live validation procedure](../parallel-playback-validation.md)
+  to correlate the signed-in client's warning with request/backend/host evidence;
+  similar toasts do not establish cross-device notification delivery.
 - `401`/`409`: stop saves and polling, cancel timers and ask Account to recheck
   the session. Confirmed guest/expiry clears synchronized data (§16).
 - `412`: poll and retry once; repeated conflict stays dirty for a later save.
@@ -1245,10 +1256,19 @@ everything and leaves CUB's icon visible when `location.protocol` is not
 - Keycloak unavailable: existing sessions fail open (§5.3.1) and local operation
   continues; new login fails and full health reports `Degraded`.
 
+The later [parallel playback implementation](../plans/completed/20261108-parallel-playback-and-container-migration.md)
+also fences local file-dialog, discovery, preload and player-stat callbacks.
+Dialog close and discovery timeout never issue an automatic hash-wide drop;
+terminal paths clear local requests/timers and reject stale responses. Explicit
+public `Torserver.drop`, Timeline and paused-reader heartbeats remain intact.
+Server expiry still depends on readers and deadline-refreshing requests; no
+cross-device viewer count or immediate cache-release guarantee is introduced.
+
 ## 12. Security
 
 - Serve login and API traffic through HTTPS, or through HTTP only inside the
-  Tailscale network with the Lampa port bound to the Tailscale address (§5.1);
+  trusted LAN/Tailscale network (§5.1); the all-interface web publication itself
+  does not restrict access to those networks;
   the same holds for Keycloak, whose configured issuer must equal its `iss`.
 - Use sealed, stateless session cookies (`HttpOnly`, `SameSite=Lax`, `Secure`
   when the public URL is HTTPS) that the browser can neither read nor forge (§5.3).
@@ -1379,8 +1399,8 @@ Deviations recorded while implementing Plan 2
   `X-Lampa-Proto` header. The API uses it for OIDC redirects, CSRF Origin checks
   and the cookie Secure flag; every browser-facing callback and logout return URL
   must be registered exactly in Keycloak. The Keycloak issuer remains the
-  checked-in `Authentication.Keycloak.Authority` setting. The release Compose file
-  binds port `8092` to `100.105.140.19`;
+  checked-in `Authentication.Keycloak.Authority` setting. The current release Compose file
+  publishes `8092:80` on all host interfaces for LAN/tailnet access;
 - session lifetimes (30 days idle, 180 days absolute, §5.3) are constants in
   `pkg/auth`, not configuration: tests inject a clock, and embedded settings
   cannot change on the server without a redeploy anyway;

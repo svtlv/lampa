@@ -449,7 +449,10 @@ Document supported capacity only for the measured content, clients, routes and
 neighbor conditions. Initial cutover, later normal redeployment, actual incident
 reproduction and initiating-process attribution remain separate operational
 results. Unmeasured capacity or unresolved incidents must stay visible as
-follow-up; automated checks cannot establish a live fix.
+[incident/capacity follow-up](backlog/parallel-playback-resource-peaks-and-configuration.md);
+automated checks cannot establish a live fix. Repository completion and the
+owner-operated handover are recorded in the
+[archived plan](plans/completed/20261108-parallel-playback-and-container-migration.md).
 
 ## Collector read-only boundaries and references
 

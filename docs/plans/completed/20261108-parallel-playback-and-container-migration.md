@@ -1,5 +1,13 @@
 # Implement parallel-playback fixes and TorrServer/Jackett Compose configuration
 
+Repository implementation completed and archived November 9, 2026. Tasks 1–12
+passed applicable local checks. Earlier task-validation notes describe their
+historical checkpoints; their then-pending later tasks are now complete.
+Production cutover, settings changes, live playback and measured capacity remain
+unperformed. Use the [manual runbook](../../container-migration-runbook.md),
+[validation procedure](../../parallel-playback-validation.md) and the final
+post-implementation handover below for later owner-operated actions.
+
 ## Objective and completion contract
 
 Deliver the repository changes for all three backlog items, add the existing
@@ -43,11 +51,11 @@ phase or a dependency of implementation completion.
   unresolved incident/capacity follow-up visible without making it a dependency
   of finishing or archiving this plan.
 
-| Backlog file | Repository work in this plan |
+| Historical backlog file | Repository work and final disposition |
 | --- | --- |
-| `docs/backlog/isolate-messages-between-parallel-devices.md` | Task 6: accurate account errors, bounded diagnostics and independent-client regressions |
-| `docs/backlog/share-torrents-between-torrserver-links.md` | Task 7: cross-link membership union and safe removal with account/guest/race coverage |
-| `docs/backlog/parallel-playback-resource-peaks-and-configuration.md` | Tasks 2–5 and 8–10: service definitions, safe cancellation/cleanup, collector and documented tuning candidates |
+| `docs/backlog/isolate-messages-between-parallel-devices.md` | Task 6 (`dadd0cd`): accurate account errors, bounded diagnostics and independent-client regressions. Deleted as resolved implementation work; live warning attribution remains in the follow-up below. |
+| `docs/backlog/share-torrents-between-torrserver-links.md` | Task 7 (`6972aea`): cross-link membership union and safe removal with account/guest/race coverage. Deleted as resolved. |
+| `docs/backlog/parallel-playback-resource-peaks-and-configuration.md` | Tasks 2–5 and 8–10: service definitions, safe cancellation/cleanup, collector and documented tuning candidates delivered. Retained only for outstanding live incident/capacity acceptance. |
 
 ## Findings available to the implementer
 
@@ -770,26 +778,65 @@ reserved for that iteration.
 - Delete: resolved files from `docs/backlog/`
 - Move: this plan to `docs/plans/completed/`
 
-- [ ] Publish final service/configuration/error/membership/lifecycle behavior and
+- [x] Publish final service/configuration/error/membership/lifecycle behavior and
   all post-implementation usage instructions. Keep secrets/private logs outside Git.
-- [ ] Validate documentation links/snippets and update references to deleted
+- [x] Validate documentation links/snippets and update references to deleted
   backlog files with closing-change references when available.
-- [ ] Delete every resolved backlog item with `git rm` and verify no completed
+- [x] Delete every resolved backlog item with `git rm` and verify no completed
   item remains. Do not merely mark resolved items in prose.
-- [ ] Keep any genuinely unresolved incident/capacity objective explicit with its
+- [x] Keep any genuinely unresolved incident/capacity objective explicit with its
   post-implementation follow-up; do not claim a live fix or measured capacity from
   unit tests. Such follow-up cannot hold this implementation plan open.
-- [ ] Mark repository tasks complete, archive the plan and report implementation
+- [x] Mark repository tasks complete, archive the plan and report implementation
   results plus the final handover. Do not wait for release/deployment or perform
   any owner-operated action to finish implementation.
+
+Task 12 validation (November 9, 2026): finalized service/readiness, account
+error/diagnostic, cross-link membership and local cancellation guidance in
+`AGENTS.md`, `CLAUDE.md`, the backend README and sync design. Corrected stale
+Tailscale-specific web-binding and API-only readiness descriptions to match the
+current all-interface `8092:80` publication and shared API/vendor deadline.
+The backend local-run example now selects web/API with the DB dependency rather
+than also starting fixed-name vendor services on production-style absolute binds.
+Inventory, runbook and validation docs link to this archived completion record
+and distinguish repository results from unperformed operational work.
+
+Deleted both resolved implementation backlog files with `git rm`. Replaced the
+older archived two-link plan's deleted-backlog link with Task 7 and commit
+`6972aea`. Retained one narrowed incident/capacity item, preserving the historical
+OOM and actual warning evidence through commits `2162282` and `0ac7703`.
+It tracks live cutover, warning attribution, workload/cleanup measurement and
+settings promotion without reopening completed implementation tasks. No completed
+implementation objective remains in the active backlog.
+
+`node --test tests/*.test.cjs` passed all 720 tests with no failures,
+cancellations or skips, including release transformation, readiness and collector
+fixtures and existing documentation/schema guards. The specified pinned ES5
+command plus separate parses of every add-on and the bundle, example-env Compose
+rendering, collector `bash -n` and `git diff --check` passed. Documentation checks
+covered all 10 changed/archived documents, their local links and anchors, nine
+shell snippets (syntax only), nine JSON/JSONL examples, deleted-backlog link
+absence and five implementation/evidence commit references. This task changed
+only documentation; no artificial prose tests or Go checks were needed. No
+required local tooling was unavailable or skipped.
+
+All repository tasks are complete and this plan is archived under
+`docs/plans/completed/`. Later owner actions remain in the runbook, validation
+procedure, follow-up and handover below. No production access, release/deployment,
+shutdown, backup, settings writes, live collection, browser/TV playback or
+capacity acceptance was performed or claimed.
 
 ## Evidence references
 
 These support the embedded findings; they are not dependencies on private
 production documents or additional owner actions.
 
-- The three existing backlog files record the earlier investigation and source
-  audit; implementation scope and required behaviors are restated above.
+- Historical investigation is retained in Git (`2162282` for resource/OOM
+  findings, `0ac7703` for the warning arrangement). Resolved implementation
+  backlog files were deleted; account classification landed in `dadd0cd`,
+  cross-link membership in `6972aea`, and local cancellation in `9ec81a8`.
+  [Remaining incident/capacity follow-up](../../backlog/parallel-playback-resource-peaks-and-configuration.md)
+  tracks live evidence only. Implementation scope is restated above.
 - [MatriX.143 signal handling](https://github.com/YouROK/TorrServer/blob/5c812ec1abe4c8e0acee29d820f78205a8f0e7b7/server/cmd/preconfig_pos.go),
   [shutdown API](https://github.com/YouROK/TorrServer/blob/5c812ec1abe4c8e0acee29d820f78205a8f0e7b7/server/web/api/shutdown.go),
   [database-closing shutdown](https://github.com/YouROK/TorrServer/blob/5c812ec1abe4c8e0acee29d820f78205a8f0e7b7/server/torr/apihelper.go)
@@ -858,8 +905,8 @@ emulation for the production pins on ARM.
 
 ### Live measurement and tuning
 
-Follow the delivered [measurement and acceptance procedure](../parallel-playback-validation.md)
-and [runbook tuning handover](../container-migration-runbook.md#tuning-and-playback-handover-after-cutover).
+Follow the delivered [measurement and acceptance procedure](../../parallel-playback-validation.md)
+and [runbook tuning handover](../../container-migration-runbook.md#tuning-and-playback-handover-after-cutover).
 They contain the complete target-source contract, settings procedure, workload
 matrix, gates and result record. The collector's 4200-second example covers a
 60-minute sustain plus 10-minute cleanup; measure setup/reference/repeated cases

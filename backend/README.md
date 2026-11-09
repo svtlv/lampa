@@ -15,6 +15,40 @@ The `svtlv/torrserver-ownership.js` add-on uses the membership routes while cont
 call TorrServer directly for adding, listing and playback. The API never contacts TorrServer
 and receives neither its URL nor its credentials through the membership routes.
 
+## Playback and container handover
+
+The stack now includes pinned TorrServer and Jackett services. The
+[service inventory](../docs/container-migration-inventory.md) records the preserved
+configuration, three existing binds, ports and image digests. The
+[manual cutover runbook](../docs/container-migration-runbook.md) covers old-writer
+shutdown, consistent backup, exact-bind adoption, verification and upgrade-aware
+rollback. Keep the active `/opt/svtlvtv/jackett/config` directory during cleanup.
+Every later deployment redeploys both services and may interrupt playback/search.
+
+My Torrents unions membership for both configured URLs, filtered by the active
+server's live list. Removal clears only this user's membership under both IDs;
+it never deletes the server torrent. Built-in dialog close and discovery timeout
+now cancel local requests/timers without hash-wide drops. Explicit public
+`Lampa.Torserver.drop` remains available. Paused playback keeps its heartbeat;
+local cancellation does not guarantee immediate server cache expiry.
+
+Account sync distinguishes startup, load, background refresh, apply, save and
+storage failures. An unchanged background read displays "Could not refresh
+Account data"; "Not saved to Account" is reserved for failed save intent,
+including a read needed to save dirty edits. Dirty values and retries survive
+recoverable failures; repeated notifications remain suppressed per failure streak.
+`window.svtlv_sync_diagnostics()` returns copies of at most 40 page-local records:
+`phase`, `method`, `status`, `category`, `elapsed_ms` and `duration_ms`. It retains
+no URL, identity, token, body, setting name/value or exception text and sends
+nothing to another device. Refreshing the page discards it.
+
+The [playback validation procedure](../docs/parallel-playback-validation.md)
+describes the bounded collector, staged unverified tuning, full-settings
+readback/rollback and later three-viewer 1080p/single-viewer 4K acceptance.
+Implementation and automated tests do not establish migration success, the
+reported warning's production cause or measured capacity. Remaining live work
+is tracked in the [incident/capacity follow-up](../docs/backlog/parallel-playback-resource-peaks-and-configuration.md).
+
 ## Layout
 
 ```text
@@ -198,8 +232,13 @@ reads `devops/.env` (gitignored). Test is the default environment:
 cd devops
 cp .env.example .env                               # then replace the placeholder secrets
 docker network create svtlv_monitoring_external    # once
-docker compose -p lampa up -d --build
+docker compose -p lampa up -d --build lampa-web lampa-api
 ```
+
+This local command starts web/API and their DB dependency only. A full-stack
+`up` also starts the fixed-name vendor services using their absolute existing
+data binds; use the runbook for adoption, or isolated synthetic paths/names/ports
+for a rehearsal.
 
 The API is not published: reach it through the web container's proxy, for example
 `curl http://localhost:8092/api/v1/session` → `{"authenticated":false}`. Health stays
@@ -554,11 +593,14 @@ including documentation checks against the routes, migration SQL and scope inven
 input, `environment` (Development / Test / Production, default Production), written into the
 server `.env` as `LAMPA_ENVIRONMENT`; Development fails the `prepare` job, since it only works
 for a local `go run`. The public URL and Keycloak Authority come from the selected appsettings
-files. `LAMPA_KEYCLOAK_CLIENT_SECRET` remains a required secret. The release web port binds to
-`100.105.140.19:8092` on the `svtlv` Tailscale host. It builds `ghcr.io/<owner>/lampa-web` and
+files. `LAMPA_KEYCLOAK_CLIENT_SECRET` remains a required secret. The release publishes web as
+`8092:80` on all host interfaces, preserving LAN and Tailscale access. It builds `ghcr.io/<owner>/lampa-web` and
 `ghcr.io/<owner>/lampa-api` (branch, `<branch>-<sha>` and `latest` tags), swaps the `:dev`
 images for `:latest`, strips the `build:` blocks with `sed`, and deploys over Tailscale + SSH,
-waiting up to 3 minutes for `svtlvtv_lampa_api` to be healthy. It does not run the tests
+using a shared 3-minute readiness deadline for running, healthy API, TorrServer
+and Jackett containers. Vendor pins remain unchanged by the release transformation.
+Readiness failure reports bounded state and API logs, excluding vendor logs and
+private configuration. It does not run the tests
 (same as Svtlv); `tests.yaml` is the gate.
 
 There are no rollback inputs: roll back by reverting the commit and dispatching again.
