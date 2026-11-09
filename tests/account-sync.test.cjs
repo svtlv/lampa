@@ -155,15 +155,16 @@ function page(options = {}) {
       success(data, status = 200, responseEtag = '"etag"') {
         etag = responseEtag; xhr.status = status; config.success(data, 'success', xhr);
       },
-      fail(status = 503, body, textOnly = false) {
+      fail(status = 503, body, textOnly = false, textStatus = 'error') {
         config.error({...xhr, status, responseJSON: textOnly ? undefined : body,
-          responseText: typeof body === 'string' ? body : JSON.stringify(body)});
+          responseText: typeof body === 'string' ? body : JSON.stringify(body)}, textStatus);
       }
     };
     requests.push(request);
     return request;
   };
-  const context = vm.createContext({window, document, $, cache_version: 42, setTimeout, clearTimeout: id => timers.delete(id)});
+  const context = vm.createContext({window, document, $, cache_version: 42, setTimeout,
+    Date: class extends Date { constructor() { super(clock); } }, clearTimeout: id => timers.delete(id)});
   vm.runInContext(options.uninspected ? source : inspected, context);
   return {
     window, core: window.core, items, faults, calls, requests, notices, timers, trace, tick, reloads, events,
@@ -510,7 +511,7 @@ test('lone surrogates and encoding failures skip uploads with a notice, valid pa
     assert.equal(p.core.fitBody({favorite: value}), null);
   }
   assert.equal(p.core.fitBody({language: '😀'}).data.language, '😀');
-  assert.equal(p.notices.length, 3);
+  assert.equal(p.notices.length, 1, 'repeated encoding failures share one notice streak');
   assert.equal(p.core.failure(), 'save');
 });
 
@@ -535,7 +536,7 @@ test('invalid scope JSON disables sync and produces a localized notice', () => {
     const p = page({language: 'ru'});
     assert.equal(p.load(invalid), false, JSON.stringify(invalid)?.slice(0, 80));
     assert.equal(p.core.disabled(), true);
-    assert.deepEqual(p.notices, ['Не сохранено в Аккаунт']);
+    assert.deepEqual(p.notices, ['Не удалось загрузить данные Аккаунта']);
   }
 });
 
@@ -685,11 +686,11 @@ test('invalid documents and all other API failures preserve local data and defer
     p.scopeRequest.success(clean(realScope)); reply(p.dataRequest);
     assert.equal(p.starts(), 1); assert.equal(p.items.language, 'ru'); assert.equal(p.items[USER], 'Alice');
     assert.equal(p.items[BASE], '{}'); assert.equal(p.core.bootState().ready, false);
-    assert.equal(p.core.disabled(), false); assert.equal(p.core.failure(), 'save');
+    assert.equal(p.core.disabled(), false); assert.equal(p.core.failure(), 'boot');
     assert.deepEqual(p.notices, []);
     p.tick(100); assert.deepEqual(p.notices, []);
     p.install(); p.tick(100);
-    assert.deepEqual(p.notices, ['Not saved to Account']);
+    assert.deepEqual(p.notices, ['Account data could not be loaded at startup']);
     p.tick(5000); assert.equal(p.notices.length, 1); assert.equal(p.starts(), 1);
   }
 });
@@ -701,8 +702,8 @@ test('scope failure and invalid scope do not apply a valid document or block boo
     if (invalid) p.scopeRequest.success({}); else p.scopeRequest.fail(503);
     assert.equal(p.starts(), 1); assert.equal(p.items.language, 'ru'); assert.equal(p.items.favorite, undefined);
     assert.equal(p.core.bootState().ready, false); assert.equal(p.core.disabled(), invalid);
-    assert.equal(p.core.failure(), 'save');
-    p.install(); p.tick(0); assert.deepEqual(p.notices, ['Not saved to Account']);
+    assert.equal(p.core.failure(), 'boot');
+    p.install(); p.tick(0); assert.deepEqual(p.notices, ['Account data could not be loaded at startup']);
   }
 });
 
@@ -721,7 +722,7 @@ test('three-second deadline starts Lampa once; late data and late scope response
     assert.deepEqual(clean(p.items), items); assert.deepEqual(clean(p.core.bootState()), state);
     assert.equal(p.core.disabled(), false, 'invalid late scope must not disable future recovery');
     p.install(); p.tick(10000);
-    assert.equal(p.starts(), 1); assert.deepEqual(p.notices, ['Not saved to Account']);
+    assert.equal(p.starts(), 1); assert.deepEqual(p.notices, ['Account data could not be loaded at startup']);
   }
 });
 
@@ -1182,7 +1183,7 @@ test('account fetch failures keep local data and allow a later signed-in event t
     else p.dataRequest.fail(404, {error: {code: 'other'}});
     assert.equal(p.items.favorite, 'guest'); assert.equal(p.items[USER], undefined);
     assert.equal(p.core.accountState().uploads, false); assert.equal(p.reloads.length, 0);
-    assert.deepEqual(p.notices, ['Not saved to Account']);
+    assert.deepEqual(p.notices, ['Could not load Account data']);
     p.state(signedIn('Alice')); assert.equal(p.requests.length, 3);
     p.requests[2].fail(404, missingDocument);
     assert.equal(p.core.accountState().uploads, true);
@@ -1754,7 +1755,7 @@ test('invalid poll responses do not change local values, base, document or ETag'
     p.tick(60000); p.requests.at(-1).success(invalid, 200, '"invalid"');
     assert.deepEqual({...p.items}, before); assert.deepEqual(clean(p.core.bootState()), doc);
     assert.deepEqual(p.storageWrites, []); assert.deepEqual(p.refreshes, []);
-    assert.deepEqual(p.notices, ['Not saved to Account']);
+    assert.deepEqual(p.notices, ['Could not refresh Account data']);
     p.tick(60000); assert.equal(p.requests.at(-1).config.headers['If-None-Match'], '"initial"');
     p.requests.at(-1).success(documentV2({language: 'de'}), 200, '"valid"');
     assert.equal(p.items.language, 'de');
@@ -1838,12 +1839,12 @@ test('idle polling recovers from network failures and starts a new notification 
   const p = pollingPage({language: 'en'});
   p.tick(60000); p.requests.at(-1).fail(503);
   p.tick(60000); p.requests.at(-1).fail(0);
-  assert.deepEqual(p.notices, ['Not saved to Account']);
+  assert.deepEqual(p.notices, ['Could not refresh Account data']);
   assert.equal(p.items.language, 'en'); assert.equal(p.core.bootState().lastEtag, '"initial"');
   p.tick(60000); p.requests.at(-1).success(documentV2({language: 'de'}), 200, '"recovered"');
   assert.equal(p.items.language, 'de'); assert.equal(p.core.accountState().uploads, true);
   p.tick(60000); p.requests.at(-1).fail(503);
-  assert.deepEqual(p.notices, ['Not saved to Account', 'Not saved to Account']);
+  assert.deepEqual(p.notices, ['Could not refresh Account data', 'Could not refresh Account data']);
   assert.equal(p.reloads.length, 0);
 });
 
@@ -2777,4 +2778,217 @@ test('acceptance: logout and confirmed session expiry mask reserve data while re
     assert.equal(guest.items[USER], undefined); assert.equal(guest.items[BASE], undefined);
     guest.tick(600000); assert.equal(guest.requests.length, 0);
   }
+});
+
+const syncMessages = {
+  en: {boot: 'Account data could not be loaded at startup', load: 'Could not load Account data',
+    read: 'Could not refresh Account data', apply: 'Could not apply Account data',
+    save: 'Not saved to Account', storage: 'Account sync is unavailable on this device'},
+  ru: {boot: 'Не удалось загрузить данные Аккаунта при запуске', load: 'Не удалось загрузить данные Аккаунта',
+    read: 'Не удалось обновить данные Аккаунта', apply: 'Не удалось применить данные Аккаунта',
+    save: 'Не сохранено в Аккаунт', storage: 'Синхронизация Аккаунта недоступна на этом устройстве'}
+};
+const diagnostics = p => clean(p.window.svtlv_sync_diagnostics());
+
+for (const language of ['en', 'ru']) {
+  test('error messages describe boot, load, background read, apply and save in ' + language, () => {
+    const message = syncMessages[language];
+    const boot = page({preboot: true, language, items: {[USER]: 'Alice'}});
+    let starts = 0;
+    boot.window.svtlv_sync_boot(() => { starts++; });
+    boot.tick(3000); boot.install(); boot.tick(100);
+    assert.equal(starts, 1); assert.deepEqual(boot.notices, [message.boot]);
+    assert.ok(diagnostics(boot).some(d => d.phase === 'boot' && d.category === 'timeout' && d.duration_ms === 3000));
+
+    const load = loginPage({language}); load.dataRequest.fail(503);
+    assert.deepEqual(load.notices, [message.load]);
+    load.state(signedIn('Alice')); load.requests.at(-1).fail(503);
+    assert.equal(load.notices.length, 1, 'load retries suppress repeated failures');
+    load.state(signedIn('Alice')); load.requests.at(-1).success(documentV2({}));
+    assert.equal(load.core.accountState().uploads, true);
+
+    const read = pollingPage({language: 'en'}, {language});
+    read.tick(60000); read.requests.at(-1).fail(503);
+    assert.deepEqual(read.notices, [message.read]);
+    assert.equal(read.requests.filter(r => r.config.type === 'PUT').length, 0);
+
+    const apply = pollingPage({language: 'en', favorite: '{}'}, {language});
+    const refresh = apply.window.Lampa.Favorite.read;
+    apply.window.Lampa.Favorite.read = () => { throw new Error('private setting value'); };
+    for (let i = 0; i < 2; i++) {
+      apply.tick(60000); apply.requests.at(-1).success(documentV2({favorite: '{"remote":1}'}));
+    }
+    assert.deepEqual(apply.notices, [message.apply]);
+    assert.equal(apply.core.disabled(), false);
+    assert.ok(diagnostics(apply).some(d => d.phase === 'apply' && d.category === 'apply'));
+    apply.window.Lampa.Favorite.read = refresh;
+    apply.tick(60000); apply.requests.at(-1).success(documentV2({favorite: '{"remote":1}'}));
+    apply.window.Lampa.Favorite.read = () => { throw new Error('private setting value'); };
+    apply.tick(60000); apply.requests.at(-1).success(documentV2({favorite: '{"remote":2}'}));
+    assert.deepEqual(apply.notices, [message.apply, message.apply], 'successful apply ends its failure streak');
+
+    const save = savingPage({language: 'en'}, {hidden: true, language});
+    startSave(save).fail(503);
+    assert.deepEqual(save.notices, [message.save]);
+    assert.equal(save.core.dirty('language'), true);
+    assert.equal(diagnostics(save).at(-1).phase, 'save-preflight');
+    save.visibility(true); save.requests.at(-1).success(undefined, 304);
+    save.requests.at(-1).fail(503);
+    assert.equal(save.requests.at(-1).config.type, 'PUT');
+    assert.equal(diagnostics(save).at(-1).phase, 'save');
+    assert.equal(save.notices.length, 1, 'GET success does not clear a failed save streak');
+  });
+}
+
+for (const joined of [false, true]) test('a failed read retains caller intent when a save joins it: ' + joined, () => {
+  const p = pollingPage({language: 'en'});
+  p.tick(60000); const get = p.requests.at(-1);
+  if (joined) {
+    p.change('language', 'ru'); p.tick(2000);
+    assert.equal(p.requests.at(-1), get);
+  }
+  get.fail(503);
+  assert.deepEqual(p.notices, [syncMessages.en[joined ? 'save' : 'read']]);
+  assert.equal(diagnostics(p).at(-1).phase, joined ? 'save-preflight' : 'background-read');
+  assert.equal(p.requests.filter(r => r.config.type === 'PUT').length, 0);
+  if (joined) {
+    assert.equal(p.core.dirty('language'), true);
+    p.visibility(true); p.requests.at(-1).success(undefined, 304);
+    p.requests.at(-1).success('', 204);
+    assert.equal(p.core.dirty('language'), false);
+  }
+});
+
+for (const peerUser of ['', 'Alice', 'Bob']) for (const mode of ['read', 'put', 'apply', 'storage', 'boot']) {
+  test('independent clients isolate ' + mode + ' failure from peer ' + (peerUser || 'guest'), () => {
+    const data = {language: 'en', favorite: '{}'};
+    const peer = peerUser ? loginPage({items: data}, peerUser) : page({state: guestState, items: data});
+    if (peerUser) peer.dataRequest.success(documentV2(data));
+    const before = {...peer.items};
+    let p;
+    if (mode === 'boot') {
+      p = page({preboot: true, items: {[USER]: 'Alice'}});
+      p.window.svtlv_sync_boot(() => p.install()); p.tick(3000);
+    } else {
+      p = pollingPage(data);
+      if (mode === 'put') {
+        startSave(p).success(undefined, 304); p.requests.at(-1).fail(503);
+      } else {
+        if (mode === 'apply') p.window.Lampa.Favorite.read = () => { throw new Error('private'); };
+        if (mode === 'storage') p.faults.quota = 'favorite';
+        p.tick(60000);
+        if (mode === 'read') p.requests.at(-1).fail(503);
+        else p.requests.at(-1).success(documentV2({favorite: '{"remote":1}'}));
+      }
+    }
+    assert.deepEqual(p.notices, [syncMessages.en[mode === 'put' ? 'save' : mode]]);
+    assert.deepEqual({...peer.items}, before);
+    assert.deepEqual(peer.notices, []);
+    assert.deepEqual(diagnostics(peer).filter(d => d.category !== 'ok'), []);
+    if (!peerUser) {
+      peer.tick(120000);
+      assert.equal(peer.requests.length, 0, 'guest has no account requests or messages');
+    } else {
+      startSave(peer).success(undefined, 304); peer.requests.at(-1).success('', 204);
+      assert.equal(peer.core.dirty('language'), false, 'peer saves independently after the other client fails');
+      assert.equal(peer.items[USER], peerUser);
+    }
+    assert.deepEqual(peer.notices, []);
+  });
+}
+
+for (const phase of ['load', 'read', 'preflight', 'put']) for (const response of ['success', 'network', 'auth']) {
+  test('obsolete ' + phase + ' callback cannot report errors or affect a new account: ' + response, () => {
+    const data = {language: 'en', favorite: '{}'};
+    const p = phase === 'load' ? loginPage({items: data}) : pollingPage(data);
+    let old = p.dataRequest;
+    if (phase === 'read') { p.tick(60000); old = p.requests.at(-1); }
+    if (phase === 'preflight' || phase === 'put') {
+      old = startSave(p);
+      if (phase === 'put') { old.success(undefined, 304); old = p.requests.at(-1); }
+    }
+    p.state(signedIn('Bob'));
+    p.requests.at(-1).success(documentV2({language: phase === 'preflight' || phase === 'put' ? 'ru' : 'en', favorite: '{}'}));
+    const before = {...p.items}, expired = expireCount(p);
+    if (response === 'success') old.success(phase === 'put' ? '' : documentV2({favorite: 'old private data'}), phase === 'put' ? 204 : 200);
+    else old.fail(response === 'auth' ? 401 : 503);
+    assert.deepEqual({...p.items}, before);
+    assert.equal(p.items[USER], 'Bob'); assert.equal(expireCount(p), expired);
+    assert.deepEqual(p.notices, []);
+    assert.equal(p.core.accountState().uploads, true);
+  });
+}
+
+test('diagnostics are bounded, copied metadata with timing and no private data', () => {
+  const secret = 'private-password-token-user-url';
+  const p = pollingPage({language: 'en', torrserver_password: secret, account: secret});
+  p.tick(60000); p.tick(125); p.requests.at(-1).fail(503, {error: {code: secret}, data: {password: secret}});
+  assert.deepEqual(diagnostics(p).at(-1), {phase: 'background-read', method: 'GET', status: 503,
+    category: 'http', elapsed_ms: 60125, duration_ms: 125});
+  p.change('language', 'ru'); p.tick(2000); p.requests.at(-1).success(undefined, 304);
+  p.requests.at(-1).fail(0, secret, true, 'timeout');
+  assert.equal(diagnostics(p).at(-1).category, 'timeout');
+  for (let i = 0; i < 55; i++) {
+    p.visibility(false); p.requests.at(-1).fail(200, secret, true, 'parsererror');
+  }
+  const records = diagnostics(p);
+  assert.equal(records.length, 40);
+  assert.equal(records.at(-1).category, 'invalid');
+  for (const entry of records) {
+    assert.deepEqual(Object.keys(entry).sort(), ['category', 'duration_ms', 'elapsed_ms', 'method', 'phase', 'status']);
+    assert.ok(Number.isInteger(entry.status) && entry.status >= 0 && entry.status <= 599);
+    assert.ok(entry.duration_ms >= 0 && entry.elapsed_ms >= entry.duration_ms);
+  }
+  const encoded = JSON.stringify(records);
+  for (const privateText of [secret, 'Alice', '/api/', 'torrserver_password', 'account_token', 'responseText']) {
+    assert.equal(encoded.includes(privateText), false, privateText);
+  }
+  const copy = p.window.svtlv_sync_diagnostics(); copy[0].phase = secret; copy.length = 0;
+  assert.deepEqual(diagnostics(p), records, 'callers cannot mutate the diagnostic ring');
+  assert.equal(Object.keys(p.items).some(key => key.includes('diagnostic')), false, 'diagnostics never persist');
+  const restarted = page(); assert.deepEqual(diagnostics(restarted), []);
+});
+
+test('storage and invalid scope diagnostics retain only failure metadata', () => {
+  const storage = pollingPage({language: 'en'});
+  storage.faults.quota = 'language'; storage.tick(60000);
+  storage.requests.at(-1).success(documentV2({language: 'de'}));
+  assert.equal(diagnostics(storage).at(-1).category, 'storage');
+  const invalid = page(); invalid.state(signedIn('private-user'));
+  invalid.requests[0].success({private: 'private-value'});
+  assert.equal(diagnostics(invalid).at(-1).category, 'invalid');
+  assert.equal(JSON.stringify(diagnostics(invalid)).includes('private'), false);
+  assert.equal(invalid.core.disabled(), true);
+});
+
+test('account cache apply errors allow a later same-account retry before enabling uploads', () => {
+  const p = page({preboot: true, items: {[USER]: 'Alice', language: 'en', favorite: '{}'}});
+  p.window.svtlv_sync_boot(() => p.install());
+  p.requests[0].success(clean(realScope)); p.requests[1].success(documentV2({language: 'en', favorite: '{}'}));
+  const refresh = p.window.Lampa.Favorite.read;
+  p.window.Lampa.Favorite.read = () => { throw new Error('private'); };
+  p.tick(100);
+  p.state(signedIn('Alice')); p.state(signedIn('Alice'));
+  assert.deepEqual(p.notices, [syncMessages.en.apply]);
+  assert.equal(p.core.accountState().uploads, false);
+  p.window.Lampa.Favorite.read = refresh;
+  p.state(signedIn('Alice'));
+  assert.equal(p.core.accountState().uploads, true);
+  assert.equal(p.requests.length, 2, 'cache recovery reuses the guarded boot document');
+  assert.equal(p.reloads.length, 0);
+});
+
+test('read and save notice streaks recover independently', () => {
+  const p = pollingPage({language: 'en'});
+  p.tick(60000); p.requests.at(-1).fail(503);
+  startSave(p).success(undefined, 304); p.requests.at(-1).fail(503);
+  assert.deepEqual(p.notices, [syncMessages.en.read, syncMessages.en.save]);
+  p.tick(60000); p.requests.at(-1).success(undefined, 304);
+  p.visibility(true); p.requests.at(-1).success(undefined, 304); p.requests.at(-1).fail(503);
+  assert.equal(p.notices.length, 2, 'a successful idle read does not acknowledge dirty edits');
+  p.visibility(true); p.requests.at(-1).success(undefined, 304); p.requests.at(-1).success('', 204);
+  startSave(p, 'language', 'de').fail(503);
+  assert.deepEqual(p.notices, [syncMessages.en.read, syncMessages.en.save, syncMessages.en.save]);
+  p.visibility(false); p.requests.at(-1).fail(503);
+  assert.equal(p.notices.at(-1), syncMessages.en.read, 'idle read failure has its own recovered streak');
 });

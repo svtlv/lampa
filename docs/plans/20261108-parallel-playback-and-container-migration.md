@@ -446,17 +446,44 @@ settings writes, cleanup or live acceptance was performed.
 - Modify: `svtlv/account-sync.js`, `tests/account-sync.test.cjs`
 - Modify: `tests/account-state.test.cjs` if affected
 
-- [ ] Separate boot/load/background-read/apply/save error paths and add accurate
+- [x] Separate boot/load/background-read/apply/save error paths and add accurate
   English/Russian messages, preserving caller intent for save-preflight reads.
-- [ ] Preserve authentication expiry, dirty edits, storage-failure disablement,
+- [x] Preserve authentication expiry, dirty edits, storage-failure disablement,
   safe retries, failure-streak suppression and all account/baseline/revision guards.
-- [ ] Add bounded local diagnostics for phase, method/status/category and timing;
+- [x] Add bounded local diagnostics for phase, method/status/category and timing;
   exclude credentials, document bodies, user/token IDs and private setting values.
-- [ ] Add independent-client tests for guest/signed-in and account combinations,
+- [x] Add independent-client tests for guest/signed-in and account combinations,
   read/PUT/apply/storage failures, boot deadline, recovery, repeated errors and
   stale callbacks after account changes.
-- [ ] Pass account runtime and ES5 checks. Record the production incident as
+- [x] Pass account runtime and ES5 checks. Record the production incident as
   unreproduced rather than adding a live-device dependency or speculative socket fix.
+
+Task 6 validation (November 9, 2026): boot, account-load, background-read,
+apply, save and device-storage failures now have distinct English/Russian messages.
+Save-preflight reads retain save intent, including when a save joins a pending
+poll. Read/apply/save notice streaks recover independently; a successful GET does
+not acknowledge failed saves. Same-account cache-apply failures can retry without
+prematurely enabling uploads. Existing auth expiry, storage disablement, dirty
+edits, encryption recovery and account/baseline/revision guards remain covered.
+
+`window.svtlv_sync_diagnostics()` returns copies of at most 40 page-local metadata
+records: phase, method, HTTP status, category, elapsed milliseconds and request
+or deadline duration. Diagnostics are neither persisted nor sent anywhere and
+exclude URLs, headers, credentials, bodies, identities, setting names/values and
+exception text. Added 35 tests covering both languages, guest/same/different-account
+independent clients, GET/PUT/apply/storage failures, deadline timing, joined reads,
+recovery, failure suppression, stale account callbacks and diagnostic bounds,
+redaction and copy isolation.
+
+`node --test tests/*.test.cjs` passed 587 tests with no skips, including the
+account state/runtime suites, release-transformation fixtures and syntax checks
+for all 12 deployment shell blocks plus the remote body. The pinned ES5 gate
+(`npx --yes acorn@8.14.0 --ecma5 --silent svtlv/*.js app.min.js`), example-env
+Compose rendering and `git diff --check` passed. No shell or backend code changed;
+Go checks are not applicable. The reported production incident remains
+unreproduced: these regressions establish local error classification and client
+isolation, not a proven cross-device delivery cause or a live incident fix.
+No production access, device playback, deployment or socket changes were performed.
 
 ### Task 7: Share owned torrents across the two configured links
 

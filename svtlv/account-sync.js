@@ -41,13 +41,44 @@
   var saveTimer = null;
   var saving = false;
   var saveAgain = false;
-  var saveFailure = false;
+  var noticeStreaks = {};
+  var noticeUser = '';
   var pollTimer = null;
   var pollFlight = null;
+  var diagnostics = [];
+  var diagnosticStart = new Date().getTime();
   var strings = {
-    en: {save: 'Not saved to Account', storage: 'Account sync is unavailable on this device'},
-    ru: {save: 'Не сохранено в Аккаунт', storage: 'Синхронизация Аккаунта недоступна на этом устройстве'}
+    en: {boot: 'Account data could not be loaded at startup', load: 'Could not load Account data',
+      read: 'Could not refresh Account data', apply: 'Could not apply Account data',
+      save: 'Not saved to Account', storage: 'Account sync is unavailable on this device'},
+    ru: {boot: 'Не удалось загрузить данные Аккаунта при запуске', load: 'Не удалось загрузить данные Аккаунта',
+      read: 'Не удалось обновить данные Аккаунта', apply: 'Не удалось применить данные Аккаунта',
+      save: 'Не сохранено в Аккаунт', storage: 'Синхронизация Аккаунта недоступна на этом устройстве'}
   };
+
+  // Page-local, bounded and deliberately restricted to metadata. Never retain
+  // URLs, headers, identities, bodies, setting names/values or exception text.
+  function diagnose(phase, method, status, category, started) {
+    var now = new Date().getTime();
+    diagnostics.push({phase: phase, method: method, status: typeof status == 'number' &&
+      status >= 0 && status <= 599 && status % 1 === 0 ? status : 0,
+      category: category, elapsed_ms: Math.max(0, now - diagnosticStart),
+      duration_ms: started === undefined ? 0 : Math.max(0, now - started)});
+    if (diagnostics.length > 40) diagnostics.shift();
+  }
+
+  window.svtlv_sync_diagnostics = function () {
+    return diagnostics.map(function (entry) {
+      return {phase: entry.phase, method: entry.method, status: entry.status,
+        category: entry.category, elapsed_ms: entry.elapsed_ms, duration_ms: entry.duration_ms};
+    });
+  };
+
+  function problem(key) {
+    if (disabled || noticeStreaks[key]) return;
+    noticeStreaks[key] = true;
+    notify(key);
+  }
 
   function own(obj, key) {
     return Object.prototype.hasOwnProperty.call(obj, key);
@@ -80,6 +111,7 @@
 
   function disable() {
     if (disabled) return;
+    diagnose('storage', '', 0, 'storage');
     disabled = true;
     uploads = false;
     stopSave();
@@ -115,6 +147,16 @@
   function request(method, url, options, done) {
     options = options || {};
     if (disabled) { done(false, null, {status: 0}); return; }
+    var started = new Date().getTime();
+    function answer(ok, data, xhr, textStatus) {
+      var status = xhr.status;
+      var category = ok ? 'ok' : textStatus == 'timeout' ? 'timeout' :
+        textStatus == 'parsererror' ? 'invalid' : status == 401 || status == 409 ? 'auth' :
+        status == 412 ? 'conflict' : status ? 'http' : 'network';
+      diagnose(typeof options.phase == 'function' ? options.phase() : options.phase || 'load',
+        method, status, category, started);
+      done(ok, data, xhr);
+    }
     var headers = {};
     if (options.user) headers['X-Lampa-Expected-User'] = options.user;
     if (method != 'GET' && method != 'HEAD') headers['X-Lampa-Csrf'] = '1';
@@ -129,11 +171,11 @@
         timeout: options.timeout || 15000,
         headers: headers,
         data: options.body === undefined ? undefined : JSON.stringify(options.body),
-        success: function (data, status, xhr) { done(true, data, xhr); },
-        error: function (xhr) { done(false, null, xhr); }
+        success: function (data, status, xhr) { answer(true, data, xhr); },
+        error: function (xhr, textStatus) { answer(false, null, xhr, textStatus); }
       });
     } catch (err) {
-      done(false, null, {status: 0});
+      answer(false, null, {status: 0});
     }
   }
 
@@ -188,9 +230,9 @@
     return {entries: entries, encrypt: encrypt.slice()};
   }
 
-  function loadScope(done, active) {
+  function loadScope(done, active, phase) {
     var version = typeof cache_version == 'undefined' ? Math.floor(new Date().getTime() / 9e5) : cache_version;
-    return request('GET', 'svtlv/storage-scope.json?v=' + version, {}, function (ok, data) {
+    return request('GET', 'svtlv/storage-scope.json?v=' + version, {phase: phase || 'load'}, function (ok, data) {
       if (active && !active()) return;
       if (disabled) { done(false); return; }
       if (!ok) { done(false); return; }
@@ -200,7 +242,11 @@
         // This cached policy is never used to authorize imports or uploads.
         storage('setItem', SCOPE_KEY, JSON.stringify({version: 1, scopes: data.scopes}));
       } catch (err) {
-        if (!disabled) { disabled = true; notify('save'); }
+        if (!disabled) {
+          diagnose(phase || 'load', 'GET', 200, 'invalid');
+          problem(phase == 'boot' ? 'boot' : 'load');
+          disabled = true;
+        }
         done(false);
         return;
       }
@@ -232,10 +278,13 @@
     var finished = false;
     var scopeDone = false, scopeOK = false, dataDone = false;
     var result;
+    var phase = 'boot';
+    var started = new Date().getTime();
     // Arm the deadline before even reading localStorage or starting requests.
     var timer = setTimeout(function () {
       if (finished) return;
-      notify('save');
+      diagnose('boot', '', 0, 'timeout', started);
+      problem('boot');
       finish();
     }, 3000);
 
@@ -272,13 +321,16 @@
           return;
         }
         if (!scopeOK) {
-          if (!failure) notify('save');
+          problem('boot');
         } else if (result.ok && result.xhr.status == 200 && record(result.data) &&
           result.data.schema_version === 2 && record(result.data.data)) {
+          phase = 'apply';
           applyDoc(result.data.data);
           rememberDoc(result.data, result.xhr);
           ready = true;
           readyUser = marker;
+          noticeStreaks.boot = false;
+          noticeStreaks.apply = false;
         } else if (result.xhr.status == 404 && errorCode(result.xhr) == 'user_data_not_found') {
           lastDoc = {};
           lastEtag = '';
@@ -286,17 +338,18 @@
           ready = true;
           readyUser = marker;
         } else {
-          notify('save');
+          if (result.ok) diagnose('boot', 'GET', result.xhr.status, 'invalid');
+          problem('boot');
         }
       } catch (err) {
-        if (!disabled) notify('save');
+        if (!disabled) { diagnose(phase, '', 0, phase == 'apply' ? 'apply' : 'invalid'); problem(phase); }
       }
       finish();
     }
 
     function loadData() {
       dataDone = false;
-      requestDocument({user: marker, timeout: 3000}, function () { return !finished && !dataDone; },
+      requestDocument({user: marker, timeout: 3000, phase: 'boot'}, function () { return !finished && !dataDone; },
         function (ok, data, xhr, snapshot) {
           if (finished || dataDone) return;
           dataDone = true;
@@ -313,10 +366,10 @@
         scopeDone = true;
         scopeOK = ok;
         settle();
-      }, function () { return !finished; });
+      }, function () { return !finished; }, 'boot');
       loadData();
     } catch (err) {
-      if (!disabled) notify('save');
+      problem('boot');
       finish();
     }
   };
@@ -626,6 +679,10 @@
     }
     if (user && (user == handledUser || user == accountUser)) return;
 
+    if (user !== noticeUser) {
+      noticeUser = user;
+      noticeStreaks = {};
+    }
     var revision = ++accountRevision;
     accountUser = user;
     handledUser = '';
@@ -633,9 +690,10 @@
     stopSave();
     stopPolling();
     function active() { return !disabled && !reloading && revision == accountRevision; }
-    function failed() {
+    function failed(phase) {
       accountUser = '';
-      if (!disabled) notify('save');
+      handledUser = '';
+      problem(phase || 'load');
     }
     function complete() {
       if (!active()) return;
@@ -655,15 +713,20 @@
         }
         if (marker == user && ready && readyUser == user) {
           handledUser = user;
-          refreshLocal();
+          try { refreshLocal(); }
+          catch (err) { if (!disabled) diagnose('apply', '', 0, 'apply'); failed('apply'); return; }
+          noticeStreaks.load = false;
+          noticeStreaks.apply = false;
           enableUploads();
           return;
         }
-        requestDocument({user: user}, active, function (ok, data, xhr) {
+        requestDocument({user: user, phase: 'load'}, active, function (ok, data, xhr) {
           if (!active()) return;
+          var phase = 'load';
           try {
             var changed = false;
             if (ok && xhr.status == 200 && record(data) && data.schema_version === 2 && record(data.data)) {
+              phase = 'apply';
               changed = marker == user ? applyDoc(data.data).changed : replaceDoc(data.data, user);
               rememberDoc(data, xhr);
             } else if (xhr.status == 404 && errorCode(xhr) == 'user_data_not_found') {
@@ -680,6 +743,7 @@
               window.Lampa.Listener.send('svtlv_account', {type: 'expired'});
               return;
             } else {
+              if (ok) diagnose('load', 'GET', xhr.status, 'invalid');
               failed();
               return;
             }
@@ -688,12 +752,19 @@
             ready = true;
             readyUser = user;
             handledUser = user;
+            noticeStreaks.boot = false;
+            noticeStreaks.load = false;
+            noticeStreaks.apply = false;
             if (changed) reloadPage();
             else {
+              phase = 'apply';
               refreshLocal();
               enableUploads();
             }
-          } catch (err) { failed(); }
+          } catch (err) {
+            if (!disabled) diagnose(phase, '', 0, phase == 'apply' ? 'apply' : 'invalid');
+            failed(phase);
+          }
         });
       } catch (err) { failed(); }
     }
@@ -793,7 +864,7 @@
 
   function enableUploads() {
     uploads = true;
-    saveFailure = false;
+    noticeStreaks.save = false;
     // Includes edits made with nolisten before a reload and first-login guest data.
     scheduleSave();
     schedulePoll();
@@ -814,7 +885,7 @@
     } catch (err) { /* Storage failures already disable sync. */ }
   }
 
-  function saveError(xhr) {
+  function syncError(xhr, kind) {
     if (xhr.status == 401 || xhr.status == 409) {
       uploads = false;
       ready = false;
@@ -827,8 +898,7 @@
       window.Lampa.Listener.send('svtlv_account', {type: 'expired'});
       return;
     }
-    if (!saveFailure && !disabled) notify('save');
-    saveFailure = true;
+    problem(kind || 'save');
   }
 
   function stopPolling() {
@@ -856,8 +926,9 @@
     }
     var flight = {revision: accountRevision, callbacks: done ? [done] : []};
     pollFlight = flight;
+    function phase() { return flight.callbacks.length ? 'save-preflight' : 'background-read'; }
     var incomplete = unreadableKeys.length > 0;
-    requestDocument({user: accountUser, etag: incomplete ? '' : lastEtag}, function () {
+    requestDocument({user: accountUser, etag: incomplete ? '' : lastEtag, phase: phase}, function () {
       return pollFlight === flight && flight.revision == accountRevision && uploads && !disabled && !reloading;
     }, function (ok, data, xhr) {
       if (pollFlight !== flight || flight.revision != accountRevision || !uploads || disabled || reloading) return;
@@ -876,15 +947,20 @@
           success = true;
           missing = true;
         } else {
-          saveError(xhr);
+          if (ok) diagnose(phase(), 'GET', xhr.status, 'invalid');
+          syncError(xhr, flight.callbacks.length ? 'save' : 'read');
         }
-      } catch (err) { saveError({status: 0}); }
+      } catch (err) {
+        if (!disabled) diagnose('apply', '', 0, 'apply');
+        syncError({status: 0}, 'apply');
+      }
       if (pollFlight !== flight) return;
       pollFlight = null;
-      if (success && !saving) {
-        saveFailure = false;
-        if (incomplete && !unreadableKeys.length) scheduleSave();
+      if (success) {
+        noticeStreaks.read = false;
+        noticeStreaks.apply = false;
       }
+      if (success && !saving && incomplete && !unreadableKeys.length) scheduleSave();
       flight.callbacks.forEach(function (callback) { callback(success, missing); });
     });
   }
@@ -905,7 +981,7 @@
       var again = saveAgain;
       saveAgain = false;
       if (ok) {
-        saveFailure = false;
+        noticeStreaks.save = false;
         if (again) save();
       }
     }
@@ -920,16 +996,17 @@
           // A repair can preserve the plaintext ETag. Never replace an incomplete
           // document unless this device can supply every omitted synced value.
           if (unreadableKeys.some(function (key) { return synced(key) && !own(body.data, key); })) {
-            saveError({status: 0});
+            diagnose('save', '', 0, 'incomplete');
+            syncError({status: 0});
             finish(false);
             return;
           }
           var sentBase = baseSnapshot();
-          request('PUT', '/api/v1/user-data', {user: accountUser, etag: lastEtag, body: body}, function (ok, data, xhr) {
+          request('PUT', '/api/v1/user-data', {user: accountUser, etag: lastEtag, body: body, phase: 'save'}, function (ok, data, xhr) {
             if (!active()) return;
             if (xhr.status == 412 && !retry) { attempt(true); return; }
             if (!ok || xhr.status != 204) {
-              saveError(xhr);
+              syncError(xhr);
               finish(false);
               return;
             }
@@ -955,10 +1032,13 @@
               lastEtag = xhr.getResponseHeader('ETag') || '';
               unreadableKeys = [];
               finish(true);
-            } catch (err) { finish(false); }
+            } catch (err) {
+              if (!disabled) { diagnose('apply', '', 0, 'apply'); syncError({status: 0}, 'apply'); }
+              finish(false);
+            }
           });
         } catch (err) {
-          saveError({status: 0});
+          syncError({status: 0});
           finish(false);
         }
       });
@@ -982,7 +1062,8 @@
     } catch (err) {
       // Encoding/measurement failure leaves local edits dirty for a later save.
     }
-    notify('save');
+    diagnose('save', '', 0, 'encoding-or-size');
+    syncError({status: 0});
     return null;
   }
 
