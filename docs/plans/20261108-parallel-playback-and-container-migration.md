@@ -84,14 +84,21 @@ lscr.io/linuxserver/jackett@sha256:341ace61a953dd404892abd319ac6c871e39189c8e0a9
 
 ### Latest stable target releases
 
-Verified November 8, 2026 against the official GitHub latest-release APIs
+Rechecked November 9, 2026 against the official GitHub latest-release APIs
 (`draft=false`, `prerelease=false`) and registry manifests:
 
 | Service | Latest stable target | Published |
 | --- | --- | --- |
 | TorrServer | `MatriX.150` | November 6, 2026 |
-| Jackett application | `v0.24.3030` | November 8, 2026 |
+| Jackett application (separate from the selected image) | `v0.24.3036` | November 9, 2026 |
 | LinuxServer Jackett image | `v0.24.3030-ls30` | November 8, 2026 |
+
+The latest published stable LinuxServer image still contains Jackett v0.24.3030;
+its moving `latest` index matches the release pin below. The newer application
+release does not yet have a newer published LinuxServer image release. Keep the
+verified container pin and effective no-update behavior. Public verification and
+target-source compatibility notes are recorded in
+`docs/container-migration-inventory.md`.
 
 Use these release-tagged, multi-platform image-index pins; both include
 `linux/amd64` for production and `linux/arm64`:
@@ -263,16 +270,27 @@ unperformed and cannot block completion or be claimed as passed.
 - Create: `docs/container-migration-inventory.md`
 - Modify: this plan only if implementation reveals a repository-level correction
 
-- [ ] Record old baseline images separately from the selected latest-stable
+- [x] Record old baseline images separately from the selected latest-stable
   targets. Refresh targets from public release/registry metadata if needed, then
   record commands, ports, UID/GID, networks and binds. No production access is needed.
-- [ ] Document preservation of full existing configuration and the internal
+- [x] Document preservation of full existing configuration and the internal
   Torznab connection without copying credentials or private data into Git.
-- [ ] Identify the existing Jackett bind under `/opt` as persistent data rather
+- [x] Identify the existing Jackett bind under `/opt` as persistent data rather
   than obsolete deployment source.
-- [ ] Document known unknowns as post-implementation context, not prerequisites
+- [x] Document known unknowns as post-implementation context, not prerequisites
   or requests for the owner to act during implementation.
-- [ ] Validate documented values against this plan and repository path conventions.
+- [x] Validate documented values against this plan and repository path conventions.
+
+Task 1 validation (November 9, 2026): all four historical/target image references,
+three bind pairs, runtime/network values, local document links and public-image
+exclusion checked. Official release APIs and raw registry-index SHA-256 checks
+confirm the selected container pins; matching tagged runtime sources inspected.
+`node --test tests/*.test.cjs` passed 520 tests with no skips;
+`npx --yes acorn@8.14.0 --ecma5 --silent svtlv/*.js app.min.js` and
+`docker compose -f devops/docker-compose.yaml --env-file devops/.env.example config --quiet`
+passed. No executable shell snippets/scripts or backend code changed; shell and
+Go checks are not applicable. Production access and live acceptance were not
+performed.
 
 ### Task 2: Add the TorrServer Compose service
 
