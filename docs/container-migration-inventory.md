@@ -102,9 +102,9 @@ outside the recorded binds. These remain dated observations, not new verificatio
 
 | Destination host path | Container path | Source to preserve/copy completely |
 | --- | --- | --- |
-| `/home/deploy/torrserver/config` | `/opt/ts/config` | `/var/lib/torrserver/config` |
-| `/home/deploy/torrserver/cache` | `/opt/ts/torrents` | `/var/lib/torrserver/cache` |
-| `/home/deploy/jackett/config` | `/config` | `/opt/svtlvtv/jackett/config` |
+| `/home/deploy/svtlvtv/torrserver/config` | `/opt/ts/config` | `/var/lib/torrserver/config` |
+| `/home/deploy/svtlvtv/torrserver/cache` | `/opt/ts/torrents` | `/var/lib/torrserver/cache` |
+| `/home/deploy/svtlvtv/jackett/config` | `/config` | `/opt/svtlvtv/jackett/config` |
 
 The owner approved only live pre-copy, reported executed with
 `rsync -aHAX --numeric-ids` to preserve UID/GID/modes and other metadata. Source

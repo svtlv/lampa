@@ -107,8 +107,8 @@ Use `-p lampa` so a local stack does not share Svtlv's `devops` project.
 Use the same project option on later Compose commands. Project names do not
 isolate this file's fixed container names, published ports or absolute bind paths.
 A full-stack `up` also starts TorrServer and Jackett against
-`/home/deploy/torrserver/config`, `/home/deploy/torrserver/cache` and
-`/home/deploy/jackett/config` (container paths remain `/opt/ts/config`,
+`/home/deploy/svtlvtv/torrserver/config`, `/home/deploy/svtlvtv/torrserver/cache` and
+`/home/deploy/svtlvtv/jackett/config` (container paths remain `/opt/ts/config`,
 `/opt/ts/torrents` and `/config`). For initial adoption, follow the
 [manual cutover runbook](docs/container-migration-runbook.md) before starting them;
 stop old writers, perform the offline final sync, pass checksum/metadata comparison
@@ -186,8 +186,8 @@ search. The owner-authorized live pre-copy on November 10, 2026 used
 backup while sources run. A checksum/metadata dry run reported no changes after
 copying; final offline verification and cutover remain unperformed. Sources
 remain `/var/lib/torrserver/{config,cache}` and `/opt/svtlvtv/jackett/config` until
-cutover. Keep all destination binds under `/home/deploy/torrserver/` and
-`/home/deploy/jackett/`; source-only cleanup is conditional on successful deployment
+cutover. Keep all destination binds under `/home/deploy/svtlvtv/torrserver/` and
+`/home/deploy/svtlvtv/jackett/`; source-only cleanup is conditional on successful deployment
 and acceptance, not currently authorized. Rollback requires compatible original
 data and reconciliation of post-cutover writes; follow the runbook. No deploy-time
 guards or automated migration/cleanup are introduced.

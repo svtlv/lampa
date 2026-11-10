@@ -60,8 +60,8 @@ Their full-settings apply/readback/rollback procedure, workload matrix and stop
 gates are authoritative. Keep raw logs, rollback snapshots, credentials, media
 identifiers and private host details outside Git.
 
-1. Complete the manual relocation cutover to `/home/deploy/torrserver/{config,cache}`
-   and `/home/deploy/jackett/config`: the November 10 live pre-copy with
+1. Complete the manual relocation cutover to `/home/deploy/svtlvtv/torrserver/{config,cache}`
+   and `/home/deploy/svtlvtv/jackett/config`: the November 10 live pre-copy with
    `rsync -aHAX --numeric-ids` is not a consistent backup or verified cutover.
    Stop old writers, final-sync offline, require zero unintended checksum/metadata
    differences and verify a complete independent pre-upgrade backup before new

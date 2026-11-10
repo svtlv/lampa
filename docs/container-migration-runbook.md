@@ -47,9 +47,9 @@ Container-internal paths do not change. Copy complete trees, never selected file
 
 | Old source host path | Destination host path | Container path |
 | --- | --- | --- |
-| `/var/lib/torrserver/config` | `/home/deploy/torrserver/config` | `/opt/ts/config` |
-| `/var/lib/torrserver/cache` | `/home/deploy/torrserver/cache` | `/opt/ts/torrents` |
-| `/opt/svtlvtv/jackett/config` | `/home/deploy/jackett/config` | `/config` |
+| `/var/lib/torrserver/config` | `/home/deploy/svtlvtv/torrserver/config` | `/opt/ts/config` |
+| `/var/lib/torrserver/cache` | `/home/deploy/svtlvtv/torrserver/cache` | `/opt/ts/torrents` |
+| `/opt/svtlvtv/jackett/config` | `/home/deploy/svtlvtv/jackett/config` | `/config` |
 
 Do not start destination writers during staging, final comparison or backup.
 
@@ -98,9 +98,9 @@ Manual final-sync examples (only after separately approved shutdown and confirma
 that writers cannot restart; these commands were not run for this documentation):
 
 ```bash
-sudo rsync -aHAX --numeric-ids /var/lib/torrserver/config/ /home/deploy/torrserver/config/
-sudo rsync -aHAX --numeric-ids /var/lib/torrserver/cache/ /home/deploy/torrserver/cache/
-sudo rsync -aHAX --numeric-ids /opt/svtlvtv/jackett/config/ /home/deploy/jackett/config/
+sudo rsync -aHAX --numeric-ids /var/lib/torrserver/config/ /home/deploy/svtlvtv/torrserver/config/
+sudo rsync -aHAX --numeric-ids /var/lib/torrserver/cache/ /home/deploy/svtlvtv/torrserver/cache/
+sudo rsync -aHAX --numeric-ids /opt/svtlvtv/jackett/config/ /home/deploy/svtlvtv/jackett/config/
 ```
 
 Gate deployment on successful offline checksum and metadata comparisons of every
@@ -109,8 +109,8 @@ files are detected without deletion. For example, repeat this read-only comparis
 for each pair in the mapping (no file contents or credentials are printed):
 
 ```bash
-sudo rsync -aHAX --numeric-ids --checksum --dry-run --itemize-changes /var/lib/torrserver/config/ /home/deploy/torrserver/config/
-sudo rsync -aHAX --numeric-ids --checksum --dry-run --itemize-changes /home/deploy/torrserver/config/ /var/lib/torrserver/config/
+sudo rsync -aHAX --numeric-ids --checksum --dry-run --itemize-changes /var/lib/torrserver/config/ /home/deploy/svtlvtv/torrserver/config/
+sudo rsync -aHAX --numeric-ids --checksum --dry-run --itemize-changes /home/deploy/svtlvtv/torrserver/config/ /var/lib/torrserver/config/
 ```
 
 Review itemized paths privately because filenames may identify private media.
@@ -208,9 +208,9 @@ is part of this handover.
 | `/opt/svtlvtv/torrserver/docker-compose.yml` | Obsolete live deployment definition after verification; retain private recovery copy |
 | Other old source/automation paths | Remove/retire only after identifying them and confirming they contain no live data; snapshot did not identify them |
 | `/var/lib/torrserver/config`, `/var/lib/torrserver/cache`, `/opt/svtlvtv/jackett/config` | Original source data only; retain for agreed rollback window, then eligible for individually reviewed source-only cleanup after acceptance and separate approval |
-| `/home/deploy/torrserver/config` → `/opt/ts/config` | Keep complete active destination configuration/database bind |
-| `/home/deploy/torrserver/cache` → `/opt/ts/torrents` | Keep active destination torrent/cache bind, even if empty |
-| `/home/deploy/jackett/config` → `/config` | Keep complete active destination Jackett bind, including credentials |
+| `/home/deploy/svtlvtv/torrserver/config` → `/opt/ts/config` | Keep complete active destination configuration/database bind |
+| `/home/deploy/svtlvtv/torrserver/cache` → `/opt/ts/torrents` | Keep active destination torrent/cache bind, even if empty |
+| `/home/deploy/svtlvtv/jackett/config` → `/config` | Keep complete active destination Jackett bind, including credentials |
 | `/home/deploy/svtlvtv/docker-compose.yaml` | Keep active destination definition and its private environment file |
 
 ## TorrServer signal handling and graceful shutdown

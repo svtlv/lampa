@@ -22,8 +22,8 @@ The stack now includes pinned TorrServer and Jackett services. The
 configuration, source/destination bind mapping, ports and release image tags. The
 [manual cutover runbook](../docs/container-migration-runbook.md) covers old-writer
 shutdown, consistent backup, relocation, verification and upgrade-aware
-rollback. PR6 relocates host binds to `/home/deploy/torrserver/config`,
-`/home/deploy/torrserver/cache` and `/home/deploy/jackett/config` (unchanged
+rollback. PR6 relocates host binds to `/home/deploy/svtlvtv/torrserver/config`,
+`/home/deploy/svtlvtv/torrserver/cache` and `/home/deploy/svtlvtv/jackett/config` (unchanged
 container paths `/opt/ts/config`, `/opt/ts/torrents` and `/config`). The November 10,
 2026 live pre-copy used `rsync -aHAX --numeric-ids`; running sources mean it is
 not a consistent backup or verified cutover. Keep original sources
@@ -247,7 +247,7 @@ docker compose -p lampa up -d --build lampa-web lampa-api
 
 This local command starts web/API and their DB dependency only. A full-stack
 `up` also starts the fixed-name vendor services using their absolute destination
-data binds under `/home/deploy/torrserver/` and `/home/deploy/jackett/`; use the
+data binds under `/home/deploy/svtlvtv/torrserver/` and `/home/deploy/svtlvtv/jackett/`; use the
 runbook for adoption, or isolated synthetic paths/names/ports for a rehearsal.
 
 The API is not published: reach it through the web container's proxy, for example

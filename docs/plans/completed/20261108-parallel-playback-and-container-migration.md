@@ -6,9 +6,9 @@
 > below, including the post-implementation handover; it does not rewrite or reopen
 > completed playback implementation or claim its historical checks cover relocation.
 >
-> Destination binds are `/home/deploy/torrserver/config:/opt/ts/config`,
-> `/home/deploy/torrserver/cache:/opt/ts/torrents` and
-> `/home/deploy/jackett/config:/config`. Original sources remain
+> Destination binds are `/home/deploy/svtlvtv/torrserver/config:/opt/ts/config`,
+> `/home/deploy/svtlvtv/torrserver/cache:/opt/ts/torrents` and
+> `/home/deploy/svtlvtv/jackett/config:/config`. Original sources remain
 > `/var/lib/torrserver/{config,cache}` and `/opt/svtlvtv/jackett/config` until cutover.
 > Only live pre-copy was approved and is reported executed with
 > `rsync -aHAX --numeric-ids`, preserving numeric UID/GID/modes. Running source
