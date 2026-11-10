@@ -105,7 +105,8 @@ function page(options = {}) {
     Utils: {qrcode() {}},
     Modal: {open() {}, close() {}}
   };
-  const ip = bundle.match(/  function ip\(\) \{[\s\S]*?\n  \}/)[0];
+  const ip = bundle.slice(bundle.indexOf('  // svtlv: keep a working TorrServer'), bundle.indexOf('  /**', bundle.indexOf('  // svtlv: keep a working TorrServer'))) + bundle.match(/  function ip\(\) \{[\s\S]*?\n  \}/)[0];
+  Lampa.Storage.value = Lampa.Storage.get;
   Lampa.Torserver.ip = vm.runInNewContext(ip + '\nip;', {Storage: Lampa.Storage});
   const window = {
     location: {protocol: options.protocol || 'https:', hash: '', pathname: '/', search: ''},

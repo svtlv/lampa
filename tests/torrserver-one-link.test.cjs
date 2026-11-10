@@ -14,7 +14,8 @@ const storageModule = bundle.slice(storageStart, storageExport.index + storageEx
 const storageSubscribe = storageModule.match(/var [\w$]+ = ([\w$]+)\(\);/)[1];
 const torrserverExport = bundle.match(/  var Torserver = \{([\s\S]*?)\n  \};/)[1];
 const torrserverURL = torrserverExport.match(/\burl: ([\w$]+)/)[1];
-const torrserverNetwork = source('my').match(/([\w$]+)\.silent\(/)[1];
+const torrserverNetwork = source('my').match(/torrserverRequest\(([\w$]+),/)[1];
+const routing = bundle.slice(bundle.indexOf('  // svtlv: keep a working TorrServer'), bundle.indexOf('  /**', bundle.indexOf('  // svtlv: keep a working TorrServer')));
 
 function source(name, indent = '  ') {
   const declaration = indent === '  ' ? '\n' + indent + 'function ' + name + '(' : '\n' + indent + name + ': function ' + name + '(';
@@ -67,7 +68,7 @@ function device(values = {}, options = {}) {
     value: key => localStorage.getItem(key) || ''
   };
   context.Utils$1 = {checkEmptyUrl: context.checkEmptyUrl};
-  vm.runInContext(source('ip') + source(torrserverURL), context);
+  vm.runInContext(routing + source('ip') + source(torrserverURL), context);
   function set(key, value) {
     localStorage.setItem(key, value);
     delete context.readed[key];
@@ -102,8 +103,7 @@ test('original settings controls retain their order, labels and remote selectors
   assert.deepEqual(d.writes, [], 'reading defaults must not persist or migrate values');
 });
 
-// Invalid values keep upstream's per-path comparisons: ip/parser/auth test for
-// "two", whereas opening status settings tests for "one".
+// Missing/invalid selections retain their device-local default behavior.
 for (const selection of [undefined, '', 'one', 'two', 'invalid']) {
   for (const one of ['', 'http://first']) {
     for (const two of ['', 'http://second']) {
@@ -121,18 +121,19 @@ for (const selection of [undefined, '', 'one', 'two', 'invalid']) {
         assert.deepEqual(d.items, values, 'routing must not swap or rewrite either URL');
       });
 
-      test('parser uses selected field without ip fallback: ' + label, () => {
+      test('parser uses the working endpoint: ' + label, () => {
         const d = device({...values, parser_torrent_type: 'torrserver'});
         const urls = [], failures = [];
         d.context.torrserver = (params, url, done) => {urls.push(url); done({Results: []});};
         d.context.Lang = {translate: key => key};
+        d.context.Torserver = {url: d.context[torrserverURL]};
         vm.runInContext(source('get$5'), d.context);
         d.context.get$5({}, () => {}, error => failures.push(error));
-        assert.deepEqual(urls, selected ? [selected] : []);
-        assert.deepEqual(failures, selected ? [] : ['torrent_parser_set_link: TorrServer']);
+        assert.deepEqual(urls, effective ? [effective] : []);
+        assert.deepEqual(failures, effective ? [] : ['torrent_parser_set_link: TorrServer']);
       });
 
-      test('authentication uses selected field without ip fallback: ' + label, () => {
+      test('authentication covers both configured endpoints: ' + label, () => {
         const d = device({...values, ...credentials});
         const headers = [];
         const xhr = {setRequestHeader: (...args) => headers.push(args)};
@@ -141,7 +142,7 @@ for (const selection of [undefined, '', 'one', 'two', 'invalid']) {
           d.context.params = {url: endpoint + '/torrents'};
           headers.length = 0;
           d.context.beforeSend(xhr);
-          assert.deepEqual(headers, selected && endpoint === selected ? [['Authorization', basicAuth]] : []);
+          assert.deepEqual(headers, (endpoint === one && one || endpoint === two && two) ? [['Authorization', basicAuth]] : []);
         }
       });
 
@@ -202,7 +203,7 @@ function settingsDevice(values, options) {
   };
   d.context.Settings = {listener: {follow: (name, callback) => settingsHooks.push(callback)}};
   d.context.Storage.listener = {follow: (name, callback) => changes.push(callback)};
-  d.context.Torserver = {ip: d.context.ip, url: d.context[torrserverURL], gstExist: () => true};
+  d.context.Torserver = {ip: d.context.ip, url: d.context[torrserverURL], request: d.context.torrserverRequest, gstExist: () => true};
   d.context.Lang = {translate: key => key};
   d.context.Platform = {is: () => false};
   d.context.start$2 = params => speeds.push({...params});
@@ -221,12 +222,12 @@ function settingsDevice(values, options) {
 for (const selection of [undefined, 'one', 'two', 'invalid']) {
   for (const one of ['', 'http://first']) {
     for (const two of ['', 'http://second']) {
-      test('speed fallback and direct status selection: ' + JSON.stringify([selection, one, two]), () => {
+      test('speed and status use a configured endpoint: ' + JSON.stringify([selection, one, two]), () => {
         const values = {torrserver_url: one, torrserver_url_two: two, ...credentials};
         if (selection !== undefined) values.torrserver_use_link = selection;
         const d = settingsDevice(values);
         const effective = selection === 'two' ? two || one : one || two;
-        const status = selection === undefined || selection === 'one' ? one : two;
+        const status = (selection === undefined || selection === 'one' ? one : two) || effective;
         d.open();
         d.enter();
         assert.deepEqual(d.speeds, effective ? [{url: effective + '/download/300', login: 'user', password: 'pass'}] : []);
@@ -238,7 +239,7 @@ for (const selection of [undefined, 'one', 'two', 'invalid']) {
   }
 }
 
-test('both URL changes and selector changes check their original status targets', () => {
+test('status checks follow URL edits and selection changes', () => {
   const d = settingsDevice({...endpoints, torrserver_use_link: 'one', torrserver_auth: 'false'});
   d.open();
   d.change('torrserver_url_two', 'http://edited-second');
@@ -251,7 +252,7 @@ test('both URL changes and selector changes check their original status targets'
   assert.ok(d.statusCalls.every(call => !call[1].headers));
   d.change('torrserver_url', '');
   d.change('torrserver_use_link', 'one');
-  assert.equal(d.statusCalls.length, 5, 'status checks never fall back from an empty selected field');
+  assert.equal(d.statusCalls.length, 7, 'status checks use the other configured URL when the selected field is empty');
   d.enter();
   assert.deepEqual(d.speeds, [{url: 'http://edited-second/download/300'}]);
 });
@@ -295,4 +296,208 @@ test('search source reacts to both URLs, the selector and parser toggle', () => 
   assert.equal(added.length, 5);
   hooks[0]({name: 'unrelated_setting'});
   assert.equal(removed.length, 6);
+});
+
+// Exercise failover through the actual Request implementation: clear() must
+// discard a late transport callback before it can retry or change the route.
+function routedDevice(values = {}, android = false) {
+  const d = device({...endpoints, ...values});
+  const requests = [], hooks = [];
+  Object.assign(d.context, {
+    console: {log() {}, error() {}},
+    Subscribe$2: () => ({send() {}}),
+    object$2: {cub_mirrors: [], cub_domain: 'cub.test'},
+    Mirrors: {connected: () => true},
+    Lampa: {Listener: {send() {}}},
+    Platform: {is: name => android && name === 'android'},
+    Lang: {translate: key => key === 'torrserver_fallback' ? 'Switched to link {link}' : key},
+    $: {ajax: params => requests.push(params)},
+    Android: {httpReq: (params, callbacks) => requests.push({...params, success: callbacks.complite, error: callbacks.error})}
+  });
+  d.context.Arrays.extend = (target, extra) => Object.assign(target, extra);
+  d.context.Arrays.clone = value => JSON.parse(JSON.stringify(value));
+  d.context.Utils$1.clearCard = value => value;
+  d.context.Storage.listener = {follow: (name, callback) => hooks.push(callback)};
+  vm.runInContext(source('Request'), d.context);
+  const start = bundle.indexOf('  var ' + torrserverNetwork + ' = new Request();');
+  vm.runInContext(bundle.slice(start, bundle.indexOf('\n  /**', bundle.indexOf('  var Torserver = {'))), d.context);
+  return {...d, requests,
+    change(name, value) { d.set(name, value); hooks.forEach(callback => callback({name, value})); },
+    fail(index, status = 0) { requests[index].error({status}, 'timeout'); }
+  };
+}
+
+for (const android of [false, true]) {
+  test('requests fall back in both directions and retain the working route: android=' + android, () => {
+    const d = routedDevice(credentials, android), success = [], failures = [];
+    const route = () => d.context.Torserver.request(new d.context.Request(), android ? 'native' : 'silent', '/torrents',
+      (json, endpoint) => success.push(endpoint), error => failures.push(error), '{"action":"list"}');
+    route();
+    assert.equal(d.requests[0].url, 'http://first/torrents');
+    d.fail(0, 401);
+    assert.equal(failures.length, 0);
+    assert.equal(d.requests[1].url, 'http://second/torrents');
+    for (const request of d.requests) {
+      assert.equal(request.headers.Authorization, basicAuth);
+      assert.equal(request.timeout, 5000);
+    }
+    d.requests[1].success([]);
+    assert.deepEqual(d.notices, ['Switched to link 2']);
+    assert.equal(d.context.Torserver.ip(), 'http://second');
+    assert.ok(d.context.Torserver.stream('movie.mkv', 'hash', 1).startsWith('http://second/stream/'));
+    route();
+    assert.equal(d.requests[2].url, 'http://second/torrents');
+    d.fail(2);
+    assert.equal(d.requests[3].url, 'http://first/torrents');
+    d.requests[3].success([]);
+    assert.equal(d.context.Torserver.ip(), 'http://first');
+    assert.deepEqual(d.notices, ['Switched to link 2', 'Switched to link 1']);
+    assert.deepEqual(success, ['http://second', 'http://first']);
+    assert.equal(failures.length, 0);
+    assert.equal(d.items.torrserver_use_link, undefined);
+    assert.equal(d.items.torrserver_url, endpoints.torrserver_url);
+    assert.equal(d.items.torrserver_url_two, endpoints.torrserver_url_two);
+  });
+}
+
+test('both links failing reports one error without a false switch notification', () => {
+  const d = routedDevice(), failures = [];
+  d.context.Torserver.connected(() => assert.fail('unexpected success'), error => failures.push(error));
+  d.fail(0); assert.deepEqual(failures, []);
+  d.fail(1, 503);
+  assert.equal(failures.length, 1);
+  assert.equal(d.requests.length, 2);
+  assert.deepEqual(d.notices, []);
+  assert.equal(d.context.Torserver.ip(), 'http://first');
+});
+
+test('an incompatible TorrServer response tries the other link', () => {
+  const d = routedDevice(), successes = [];
+  d.context.Torserver.connected(json => successes.push(json), () => assert.fail('unexpected failure'));
+  d.requests[0].success({});
+  assert.equal(d.requests[1].url, 'http://second/settings');
+  d.requests[1].success({CacheSize: 128});
+  assert.equal(successes.length, 1);
+  assert.equal(d.requests[2].url, 'http://second/gst/echo');
+  assert.deepEqual(d.notices, ['Switched to link 2']);
+});
+
+for (const phase of ['before retry', 'during retry']) {
+  test('clear cancels fallback ' + phase, () => {
+    const d = routedDevice();
+    d.context.Torserver.connected(() => assert.fail('canceled success'), () => assert.fail('canceled failure'));
+    if (phase === 'during retry') d.fail(0);
+    const count = d.requests.length;
+    d.context.Torserver.clear();
+    d.fail(count - 1);
+    d.requests[count - 1].success({CacheSize: 128});
+    assert.equal(d.requests.length, count);
+    assert.equal(d.context.Torserver.ip(), 'http://first');
+    assert.deepEqual(d.notices, []);
+  });
+}
+
+for (const key of ['torrserver_url', 'torrserver_url_two', 'torrserver_use_link', 'torrserver_password']) {
+  test('settings changed away and back reject delayed fallback: ' + key, () => {
+    const d = routedDevice({...credentials, torrserver_use_link: 'one'});
+    d.context.Torserver.connected(() => assert.fail('stale success'), () => assert.fail('stale failure'));
+    d.fail(0);
+    const previous = d.items[key];
+    d.change(key, 'temporary'); d.change(key, previous);
+    d.requests[1].success({CacheSize: 128});
+    assert.equal(d.requests.length, 2);
+    assert.equal(d.context.Torserver.ip(), 'http://first');
+    assert.deepEqual(d.notices, []);
+  });
+}
+
+for (const other of ['', 'http://first', 'http://first/']) {
+  test('empty or duplicate alternate is not retried: ' + JSON.stringify(other), () => {
+    const d = routedDevice({torrserver_url_two: other});
+    let failures = 0;
+    d.context.Torserver.connected(() => assert.fail('unexpected success'), () => failures++);
+    d.fail(0);
+    assert.equal(d.requests.length, 1);
+    assert.equal(failures, 1);
+  });
+}
+
+test('fallback add preserves payload and returns its actual endpoint to membership', () => {
+  const d = routedDevice(), results = [];
+  const object = {link: 'magnet:?xt=urn:btih:hash', title: 'Movie', poster: 'poster'};
+  d.context.Torserver.add(object, (json, endpoint) => results.push(endpoint), () => assert.fail('unexpected failure'));
+  d.fail(0);
+  assert.equal(d.requests[1].data, d.requests[0].data);
+  assert.equal(JSON.parse(d.requests[1].data).action, 'add');
+  d.requests[1].success({hash: 'a'.repeat(40)});
+  assert.deepEqual(results, ['http://second']);
+});
+
+test('settings hide a failed-link error when the other link works', () => {
+  const d = routedDevice();
+  const nodes = new Map();
+  d.context.$ = selector => {
+    if (!nodes.has(selector)) {
+      const node = {find: () => node, removeClass: () => node, addClass: () => node};
+      nodes.set(selector, node);
+    }
+    return nodes.get(selector);
+  };
+  d.context.$.ajax = params => d.requests.push(params);
+  d.context.torrent_net = new d.context.Request();
+  vm.runInContext(source('check'), d.context);
+  d.context.check('torrserver_url');
+  d.fail(0);
+  assert.deepEqual(d.notices, []);
+  d.requests[1].success('TorrServer');
+  assert.deepEqual(d.notices, ['Switched to link 2']);
+  // Checking the broken inactive URL again must not repeat the switch toast.
+  d.context.check('torrserver_url'); d.fail(2); d.requests[3].success('TorrServer');
+  assert.deepEqual(d.notices, ['Switched to link 2']);
+  d.context.check('torrserver_url'); d.fail(4); d.fail(5);
+  assert.equal(d.notices.length, 2, 'both unavailable still reports an error');
+});
+
+test('shared auth does not leak to similar or unrelated URLs', () => {
+  const d = device({...endpoints, ...credentials});
+  const headers = [];
+  vm.runInContext(source('beforeSend', '        '), d.context);
+  for (const url of ['http://first.evil/torrents', 'http://second-backup/torrents', 'http://elsewhere/?next=http://first']) {
+    d.context.params = {url};
+    d.context.beforeSend({setRequestHeader: (...args) => headers.push(args)});
+  }
+  assert.deepEqual(headers, []);
+});
+
+for (const android of [false, true]) test('search retries preserve /ts compatibility, query, timeout and credentials: android=' + android, () => {
+  const d = routedDevice({...credentials, torrserver_url: 'https://first/path/ts/',
+    torrserver_url_two: 'https://second/root/ts', parse_timeout: '20', torrserver_search_type: 'rutor'}, android);
+  vm.runInContext(source('buildUrl$1') + source('torrserver'), d.context);
+  d.context.Utils$1.buildUrl = d.context.buildUrl$1;
+  d.context.network$2 = new d.context.Request();
+  const results = [];
+  d.context.torrserver({search: 'Movie & title'}, d.context.Torserver.url(), json => results.push(json), () => assert.fail('search failed'));
+  assert.equal(d.requests[0].url, 'https://first/path/search/?query=Movie%20%26%20title');
+  d.requests[0].success({invalid: true});
+  assert.equal(d.requests[1].url, 'https://second/root/search/?query=Movie%20%26%20title');
+  assert.equal(d.requests[1].timeout, 20000);
+  assert.equal(d.requests[1].headers.Authorization, basicAuth);
+  assert.equal(d.requests[1].svtlv_search, undefined);
+  assert.equal(d.requests[1].svtlv_validate, undefined);
+  d.requests[1].success([]);
+  assert.equal(results.length, 1);
+  assert.deepEqual(d.notices, ['Switched to link 2']);
+});
+
+test('late GStreamer discovery from a previous route cannot enable it on the fallback', () => {
+  const d = routedDevice();
+  d.context.Torserver.gstCheck();
+  d.context.Torserver.my(() => {}, () => assert.fail('unexpected failure'));
+  d.fail(1); d.requests[2].success([{hash: 'a'.repeat(40)}]);
+  assert.equal(d.context.Torserver.ip(), 'http://second');
+  d.requests[0].success('echo');
+  assert.equal(d.context.Torserver.gstExist(), false);
+  d.context.Torserver.gstCheck();
+  d.requests[3].success('echo');
+  assert.equal(d.context.Torserver.gstExist(), true);
 });

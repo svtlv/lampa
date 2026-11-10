@@ -54,11 +54,11 @@ and require the handling in §10.4.
 
 TorrServer and Jackett remain unchanged and the browser calls them directly;
 the API does not proxy their traffic. Lampa's original two-link TorrServer
-settings and per-path runtime behavior are restored in `app.min.js`, with a
+settings and marked automatic link fallback live in `app.min.js`, with a
 matching `assembly.json` stamp. Both URLs and shared credentials sync while each
 client selects a link locally (§10.3–§10.4). Account, ownership and synchronization
 integrations stay in `svtlv/`. Upstream updates must retain both links and the
-separate marked shared-timecode removal (§10.2).
+marked link fallback and separate shared-timecode removal (§10.2).
 
 ## 3. Architecture
 
@@ -292,13 +292,13 @@ address typed into its URL dialog, so the document origin is the Lampa site and
 first-party cookies apply (the app has no cookie code; WebView defaults accept
 and persist them). Its saved address must equal the configured public URL.
 
-The production deployment is reachable only inside the Tailscale network, at
-`http://svtlv:8092` (bound to `100.105.140.19:8092`). WireGuard encrypts that
-link, but browsers treat it as plain HTTP: a `Secure` cookie is never stored
-there. So every Lampa cookie (session, login and device flow) carries `Secure`
+The tailnet URL is `http://svtlv:8092`. The current Compose publication is
+`8092:80` on all host interfaces, also permitting LAN access; it does not itself
+enforce tailnet-only access. WireGuard encrypts traffic over the tailnet route,
+but browsers treat it as plain HTTP: a `Secure` cookie is never stored there. So every Lampa cookie (session, login and device flow) carries `Secure`
 only when the public URL is `https://`; `HttpOnly` and `SameSite=Lax` always
-apply. The release Compose file binds the Lampa port to the Tailscale address;
-the deploy workflow verifies that mapping before deploying.
+apply. Use HTTPS for access outside a trusted network. The release workflow
+preserves the checked-in web publication without an exact-address guard.
 
 Keycloak may likewise be reached over HTTP inside the tailnet. The configured
 issuer must equal, character for character, the `iss` Keycloak puts in its
@@ -1057,49 +1057,71 @@ returned hashes, and replace removal with membership release.
 **Two URLs and the local selector.** The built-in settings expose
 `torrserver_url`, `torrserver_url_two` and `torrserver_use_link`, defaulting to
 `one`. Both URLs share one authentication toggle and username/password pair.
-The original upstream behavior differs by path:
+The selected nonempty URL is preferred until a request fails. A marked core
+patch tries the other distinct configured URL once, then keeps the working URL
+for this page. If it later fails, requests can switch back. No URL or selector
+is rewritten. Reloading or editing connection settings restores the preference.
 
-| Path | Original URL behavior |
+| Path | URL behavior |
 | --- | --- |
-| Torrent operations, streaming and speed tests | `Torserver.ip()` / `url()` use the selected URL when nonempty, otherwise the other nonempty URL; both empty means unconfigured. |
-| Parser/search | Read the selected field directly; an empty selected field reports an unconfigured TorrServer even if `ip()` could fall back. |
-| Generic request authentication | Match against the selected field directly; an empty selected field adds no Basic auth, including on requests using the fallback endpoint. |
-| Status checks | Editing either URL checks that field; changing the selector or opening settings checks the selected field, with no fallback. Nonempty checked fields receive shared credentials explicitly when auth is enabled. |
+| Torrent API and playback setup | Retry the failed operation once on the other URL. `Torserver.ip()` / `url()` and newly generated streams use the working URL. Both empty means unconfigured. |
+| Parser/search | Use the working URL, including when the preferred field is empty. Both search backends retry through the same routing helper. Preserve the search URL builder's trailing `/ts` compatibility. |
+| Authentication | Both configured URLs receive the shared credentials when enabled. Generic requests match complete host/path boundaries. |
+| Status checks | Check the edited/selected field, falling back to the effective URL when empty. A failed check tries the other URL before reporting an error. The failed field can retain its error indicator without an error notification. |
+| Notifications | Show a short link-1/link-2 switch notice only after a successful route change. Report connection/authentication errors only after both attempts fail. |
 
-Explicit request schemes retain upstream `Utils.checkEmptyUrl` behavior. These
-selected-empty differences are restored from upstream; do not replace them with
-a common resolver. Missing/invalid selection retains upstream behavior without
-new normalization or storage writes.
+Explicit HTTP(S) schemes are preserved. Empty or equivalent alternate URLs are
+not retried. Cancellation and connection edits fence both attempts, including
+away-and-back edits. Optional GStreamer discovery does not trigger failover.
+Existing media streams are not migrated or restarted automatically; fallback
+covers API/search requests and playback setup, with future stream URLs following
+the working route. Separately hosted TorrServers still need the requested torrent
+on the endpoint used for playback; the client does not replicate server state.
 
-**Effective-server membership.** The add-on takes the effective raw endpoint from
-public `Lampa.Torserver.ip()`, trims and lowercases it, removes its HTTP(S) scheme
-and trailing slashes, then synchronously computes an ES5 SHA-256 digest (64
+**Two-link membership union.** The add-on takes both configured URLs and the
+effective raw endpoint from public `Lampa.Torserver.ip()`, trims and lowercases each,
+removes its HTTP(S) scheme and trailing slashes, then synchronously computes an ES5 SHA-256 digest (64
 lowercase hex characters). This `server_id` does not depend on the page's scheme
 or a short 32-bit hash. Existing URL-1 memberships retain their IDs. Missing
 public API or both URLs empty leaves ownership unconfigured.
 
-Different normalized hosts, paths or ports remain separate membership sets even
+Different normalized hosts, paths or ports retain separate database IDs even
 when URL 1 is a tailnet address and URL 2 a home LAN address for the same physical
-server. Adding under one address never claims ownership under the other. Switching
-to another effective endpoint hides the old rows; switching back restores them.
-Either URL or local selector changes refresh My Torrents, including discarding
-inactive screens. Pending list/add/playback results retain their captured account,
-generation and effective-server checks; stale results cannot affect the other
-server's membership. Shared alias identity is deferred to
-[`docs/backlog/share-torrents-between-torrserver-links.md`](../backlog/share-torrents-between-torrserver-links.md).
+server. Equivalent normalized URLs are deduplicated. My Torrents unions this user's
+membership under both configured URLs and intersects it with the active endpoint's
+live list. The core may retry the other URL after a failed request; membership
+lookup adds no live-server requests and does not try to detect physical
+server identity. A hash owned through either URL is visible through the other if
+that active server has it; absent hashes and other users' claims stay hidden.
+Adding under one address never claims ownership under the other. Existing rows
+and guest map keys need no migration; replacing a URL leaves its old rows intact
+but outside the current union until that URL is configured again.
+
+Either URL or local selector changes refresh My Torrents and discard inactive
+screens. Pending results capture the account, both URLs, selection and generations.
+Changes away and back, inactive URL edits and equivalent aliases invalidate pending
+work. New lists and membership mutations invalidate older list results; newer
+same-hash operations supersede earlier acknowledgements and delayed add claims.
+Claims for independent hashes remain independent. An already sent request can
+still commit: these guards fence callbacks and subsequent requests, not server
+transactions. Guest storage events also invalidate pending guest lists.
 
 | Operation | Signed-in account | Anonymous guest |
 | --- | --- | --- |
-| List | Intersect the live TorrServer list with this user's database hashes for the server | Intersect it with this browser profile's local hashes for the server |
+| List | Intersect the active live list with this user's membership union under both configured URLs | Intersect it with this browser profile's local union under both URLs |
 | Explicit Add | Original direct add, then claim the canonical returned hash | Original direct add, then record the canonical hash locally |
 | Internal playback-add | Record the returned hash only if `torrserver_savedb` was enabled at invocation | Same rule, with local recording |
-| Remove | Delete only this user's database row | Delete only this browser's local membership |
+| Remove | Release only this user's rows under both configured IDs | Remove from both IDs in one local-map write |
 | Physical deletion | Operator action outside this integration; never send `action: rem` | Same |
 
 Account membership is `(user_id, server_id, hash)`. The backend obtains the user
 only from the authenticated session. A hash can belong to several users; release
 by A preserves B's row and the TorrServer record, including when A was the last
-owner. There is no automatic cleanup or row pruning.
+owner. There is no automatic cleanup or row pruning. Removal sends idempotent
+DELETEs sequentially and reports success only after both succeed. Partial failure
+reports failure and refreshes the originating list; a retry repeats both releases,
+including any row already absent. A 401/409 stops the chain for identity recheck;
+it never retries under a different account. Physical deletion is never a fallback.
 
 **No shared timecodes.** TorrServer's `/viewed` store keeps one position per
 torrent file for everyone on the server, so the fork removes TrackTimecode from
@@ -1125,16 +1147,17 @@ logout confirms guest mode. A previously confirmed guest remains a guest during
 a later refresh outage; a previously signed-in or unknown state cannot become
 a guest from an outage. An ownership `401` fails the current call, immediately
 marks state checking and triggers a session recheck. Calls capture identity,
-server and generation; stale list and membership responses are ignored, and account
-operations never switch into guest storage on a `401` or mode change. Direct playback
+both URLs, selection and generations; stale list and membership responses are ignored.
+Account operations never switch into guest storage on a `401` or mode change. Direct playback
 and its callbacks remain available during session checks and API outages; membership
 recording is skipped when identity was unresolved at invocation or changed before
 TorrServer answered. Session resolution refreshes
 an active My Torrents screen.
 
-Signed-in list lookup and the original TorrServer request start together, keeping
-upstream request-queue timing intact; guest membership is validated before its
-list request. Nothing renders until membership and the live list settle. Explicit
+Signed-in lookups for both membership IDs start alongside the original active
+TorrServer request, keeping upstream request-queue timing intact; guest membership is validated before its
+list request. Nothing renders until every membership lookup and the live list settle.
+Failure of either lookup hides the whole union. Explicit
 Add waits for membership persistence before reporting success; failed or missing
 canonical hashes notify rather than claim success. Playback success does not wait
 for membership persistence and can continue with a notification on recording
@@ -1215,8 +1238,19 @@ everything and leaves CUB's icon visible when `location.protocol` is not
 
 - No server document: keep and upload guest data only on first login without a
   previous owner's marker; clear another account's values first (§6.3).
-- Network, 5xx or invalid `200`: keep local edits dirty, notify "Not saved to
-  Account" once per failure streak, and retry on a later trigger.
+- Network, 5xx or invalid `200`: keep local edits dirty and retry on a later
+  trigger. Use caller intent: unchanged background reads report "Could not
+  refresh Account data"; a failed PUT or read required for dirty saves reports
+  "Not saved to Account". Startup, account load, apply and storage failures
+  have separate English/Russian messages. Suppress repeated notices per failure
+  streak; successful recovery permits future relevant notices.
+- `window.svtlv_sync_diagnostics()` returns copies of at most 40 page-local
+  records: `phase`, `method`, `status`, `category`, `elapsed_ms`, `duration_ms`.
+  Phases include boot/load/apply/background-read/save-preflight/save/storage.
+  No URLs, identities, headers, bodies, setting names/values or exception text
+  are retained or transmitted. Use the [live validation procedure](../parallel-playback-validation.md)
+  to correlate the signed-in client's warning with request/backend/host evidence;
+  similar toasts do not establish cross-device notification delivery.
 - `401`/`409`: stop saves and polling, cancel timers and ask Account to recheck
   the session. Confirmed guest/expiry clears synchronized data (§16).
 - `412`: poll and retry once; repeated conflict stays dirty for a later save.
@@ -1230,10 +1264,19 @@ everything and leaves CUB's icon visible when `location.protocol` is not
 - Keycloak unavailable: existing sessions fail open (§5.3.1) and local operation
   continues; new login fails and full health reports `Degraded`.
 
+The later [parallel playback implementation](../plans/completed/20261108-parallel-playback-and-container-migration.md)
+also fences local file-dialog, discovery, preload and player-stat callbacks.
+Dialog close and discovery timeout never issue an automatic hash-wide drop;
+terminal paths clear local requests/timers and reject stale responses. Explicit
+public `Torserver.drop`, Timeline and paused-reader heartbeats remain intact.
+Server expiry still depends on readers and deadline-refreshing requests; no
+cross-device viewer count or immediate cache-release guarantee is introduced.
+
 ## 12. Security
 
 - Serve login and API traffic through HTTPS, or through HTTP only inside the
-  Tailscale network with the Lampa port bound to the Tailscale address (§5.1);
+  trusted LAN/Tailscale network (§5.1); the all-interface web publication itself
+  does not restrict access to those networks;
   the same holds for Keycloak, whose configured issuer must equal its `iss`.
 - Use sealed, stateless session cookies (`HttpOnly`, `SameSite=Lax`, `Secure`
   when the public URL is HTTPS) that the browser can neither read nor forge (§5.3).
@@ -1364,8 +1407,8 @@ Deviations recorded while implementing Plan 2
   `X-Lampa-Proto` header. The API uses it for OIDC redirects, CSRF Origin checks
   and the cookie Secure flag; every browser-facing callback and logout return URL
   must be registered exactly in Keycloak. The Keycloak issuer remains the
-  checked-in `Authentication.Keycloak.Authority` setting. The release Compose file
-  binds port `8092` to `100.105.140.19`;
+  checked-in `Authentication.Keycloak.Authority` setting. The current release Compose file
+  publishes `8092:80` on all host interfaces for LAN/tailnet access;
 - session lifetimes (30 days idle, 180 days absolute, §5.3) are constants in
   `pkg/auth`, not configuration: tests inject a clock, and embedded settings
   cannot change on the server without a redeploy anyway;
@@ -1499,16 +1542,17 @@ The design is complete when:
 - signed-in My Torrents shows only entries claimed by that user, including
   when two users claim the same torrent hash; one user's removal does not
   remove the other's membership or the TorrServer record, even for the last row;
-- each guest browser profile sees only its own server-specific memberships;
+- each guest browser profile sees only its own membership union under the configured URLs;
   guest removal changes only local storage, and login/logout transfers no hashes;
 - existing unowned torrents stay hidden until re-added individually; operator
   deletion hides retained memberships and re-add of the same hash restores them;
-- both TorrServer URL inputs and the local selector retain original upstream per-path
-  behavior, including selected-empty differences in parser/auth/status paths;
-  selection defaults to `one`, persists locally and alone sends no user-data PUT;
-- membership follows the effective `Torserver.ip()` endpoint; switching to a different
-  normalized alias hides memberships and switching back restores them, including for
-  two addresses reaching the same physical server;
+- both TorrServer URL inputs remain, and the local selector defaults to `one`,
+  persists locally and alone sends no user-data PUT; requests retry the other link
+  once before reporting failure, retain a working route and can fall back in either direction;
+- My Torrents unions both configured membership IDs and intersects only the active
+  `Torserver.ip()` live list; switching aliases of the same server retains owned hashes,
+  different servers hide absent hashes, claims use the active ID and removal releases both;
+  partial failure never reports success and retries are idempotent;
   HTTP/HTTPS page origins produce the same scheme-free SHA-256 server ID;
 - TrackTimecode is gone: no toggle and no TorrServer `/viewed` reads or writes;
   Lampa's local progress continues to work;

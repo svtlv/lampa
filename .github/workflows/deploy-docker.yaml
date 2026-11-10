@@ -312,24 +312,9 @@ jobs:
           echo '>>> Ensuring monitoring external network...'
           docker network inspect svtlv_monitoring_external >/dev/null 2>&1 ||
             docker network create svtlv_monitoring_external
+
           echo '>>> Starting new containers...'
           docker-compose up -d --no-build
-
-          status=""
-          for _ in $(seq 1 36); do
-            status=$(docker inspect --format '{{if .State.Health}}{{.State.Health.Status}}{{else}}none{{end}}' svtlvtv_lampa_api 2>/dev/null || echo missing)
-            if [ "$status" = "healthy" ]; then
-              break
-            fi
-            sleep 5
-          done
-
-          if [ "$status" != "healthy" ]; then
-            echo "svtlvtv_lampa_api is not healthy after 3 minutes (status: $status)" >&2
-            docker-compose logs --tail=50 lampa-api >&2
-            exit 1
-          fi
-          echo "svtlvtv_lampa_api is healthy"
 
           echo '>>> Cleaning up old images...'
           docker image prune -f

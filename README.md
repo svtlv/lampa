@@ -34,12 +34,12 @@ regular web server for use in a compatible browser.
 | `vender/` | Browser libraries loaded by `index.html` |
 | `svtlv/` | Fork-only ES5 Account sign-in and TorrServer membership add-ons, plus the storage-scope allowlist |
 | `Dockerfile` | Apache-based production image |
-| `devops/docker-compose.yaml` | Local and server Compose configuration (`lampa-web`, `lampa-db`, `lampa-api`); builds both images locally |
+| `devops/docker-compose.yaml` | Five-service stack: local web/API builds, PostgreSQL, and pinned TorrServer/Jackett images |
 | `devops/.env.example` | Template for the local `devops/.env` (gitignored) |
 | `.github/workflows/tests.yaml` | Backend lint, tests and race, frontend Node checks and ES5 parsing, and a Compose config check on PRs and pushes to `svtlvtv` |
 | `.github/workflows/deploy-docker.yaml` | Manual Svtlv deployment workflow |
 | `backend/` | `lampa-api`, a fork-only Go service that stores user data in PostgreSQL; see [`backend/README.md`](backend/README.md) |
-| `docs/` | Design documents and implementation plans for the backend |
+| `docs/` | Designs, implementation plans, container handover and playback validation |
 
 Despite its name, `app.min.js` is readable compiled output. The web application
 has no package manager or build command. Fork-only add-ons and the two-link
@@ -85,23 +85,36 @@ values replace the `{domain}` and `{PREFIX}` placeholders in `msx/start.json`.
 
 ### Docker Compose
 
-`devops/docker-compose.yaml` defines three services: `lampa-web` (the Apache
-image), `lampa-db` (PostgreSQL) and `lampa-api` (the Go persistence service from
-`backend/`). It builds `lampa-web:dev` and `lampa-api:dev` locally and reads its
+`devops/docker-compose.yaml` defines five services: `lampa-web` (the Apache
+image), `lampa-db` (PostgreSQL), `lampa-api` (the Go persistence service from
+`backend/`), `torrserver` and `jackett`. The vendor images are pinned by release
+tag; see the [service inventory](docs/container-migration-inventory.md).
+Compose builds `lampa-web:dev` and `lampa-api:dev` locally and reads its
 values from `devops/.env`, which is gitignored; `devops/.env.example` is the
 template. Compose interpolates every service even when only one is started, so the
 secrets must be set even for a web-only run; the placeholders from the template
-are enough for that. The file also attaches `lampa-web` and `lampa-api` to the
+are enough for that. The file also attaches web/API and both vendor services to the
 external `svtlv_monitoring_external` network, which must exist:
 
 ```bash
 cd devops
 cp .env.example .env                               # replace the placeholder secrets
 docker network create svtlv_monitoring_external    # once
-docker compose -p lampa up -d --build              # or: up -d --build lampa-web
+docker compose -p lampa up -d --build lampa-web lampa-api  # includes their DB dependency
 ```
 
 Use `-p lampa` so a local stack does not share Svtlv's `devops` project.
+Use the same project option on later Compose commands. Project names do not
+isolate this file's fixed container names, published ports or absolute bind paths.
+A full-stack `up` also starts TorrServer and Jackett against
+`/home/deploy/svtlvtv/torrserver/config`, `/home/deploy/svtlvtv/torrserver/cache` and
+`/home/deploy/svtlvtv/jackett/config` (container paths remain `/opt/ts/config`,
+`/opt/ts/torrents` and `/config`). For initial adoption, follow the
+[manual cutover runbook](docs/container-migration-runbook.md) before starting them;
+stop old writers, perform the offline final sync, pass checksum/metadata comparison
+and secure a complete independent pre-upgrade backup before any new writes.
+Use isolated names, ports and synthetic bind paths for a rehearsal.
+
 The API runs in the `Test` environment by default; see
 "Configuration" and "Local run" in [`backend/README.md`](backend/README.md),
 including the Development mode (a host `go run` against the published database).
@@ -126,9 +139,9 @@ database). The Keycloak client setup is in
 Check or stop the local services with:
 
 ```bash
-docker compose ps
-docker compose logs --tail 100 lampa-web lampa-api
-docker compose down
+docker compose -p lampa ps
+docker compose -p lampa logs --tail 100 lampa-web lampa-api
+docker compose -p lampa down
 ```
 
 ## Install in MSX
@@ -164,6 +177,21 @@ publishes.
 Deployments are serialized so that two workflow runs cannot update the server at
 the same time.
 
+Before the first full-stack deployment, complete the old-project shutdown and
+backup steps in the [manual cutover runbook](docs/container-migration-runbook.md).
+The workflow does not take over old containers or migrate their data. Every
+deployment redeploys TorrServer and Jackett too and can interrupt playback and
+search. The owner-authorized live pre-copy on November 10, 2026 used
+`rsync -aHAX --numeric-ids` to preserve UID/GID/modes; it is not a consistent
+backup while sources run. A checksum/metadata dry run reported no changes after
+copying; final offline verification and cutover remain unperformed. Sources
+remain `/var/lib/torrserver/{config,cache}` and `/opt/svtlvtv/jackett/config` until
+cutover. Keep all destination binds under `/home/deploy/svtlvtv/torrserver/` and
+`/home/deploy/svtlvtv/jackett/`; source-only cleanup is conditional on successful deployment
+and acceptance, not currently authorized. Rollback requires compatible original
+data and reconciliation of post-cutover writes; follow the runbook. No deploy-time
+guards or automated migration/cleanup are introduced.
+
 The workflow has a single input:
 
 | Input | Default | Description |
@@ -177,24 +205,23 @@ The workflow performs the following operations:
 
 1. Validates the branch and all required repository secrets and variables,
    including the format of `LAMPA_DB_PASSWORD` and `LAMPA_API_DATA_KEY`, and
-   reads the selected `Authentication.PublicURL` to check the bind address and
-   port when it uses `http://` (see "GitHub Actions variables").
+   reads the selected `Authentication.PublicURL` from the appsettings files.
 2. Builds `ghcr.io/<owner>/lampa-web` and `ghcr.io/<owner>/lampa-api` and publishes
    them to GitHub Container Registry (GHCR) with the branch, `<branch>-<sha>` and
    `latest` tags.
 3. Rewrites the Compose file for release: swaps `lampa-web:dev` / `lampa-api:dev`
-   for the `latest` GHCR images and strips the `build:` blocks with `sed`, then
-   fails if a build key or a `:dev` image survives or a section went missing.
+   for the `latest` GHCR images and strips the `build:` blocks with `sed`.
+   TorrServer and Jackett retain their pinned vendor images.
 4. Connects the GitHub-hosted runner to the server's tailnet and configures SSH.
 5. Copies the Compose file and a generated `.env` to `DEPLOY_DIR`.
 6. Logs the server in to GHCR, checks the Compose configuration, pulls the images,
-   stops the running containers and starts `lampa-db`, `lampa-api` and `lampa-web`
-   with `docker-compose`.
-7. Waits up to 3 minutes for the `svtlvtv_lampa_api` healthcheck, prints its logs
-   and fails the run when it does not become healthy, then prunes old images.
+   stops the running containers and starts all five services with `docker-compose`.
+7. Prunes old images after `docker-compose up -d --no-build` succeeds.
 
-The workflow does not wait for the `lampa-web` healthcheck. It does not run the
-backend tests either; the **Tests** workflow (`tests.yaml`) gates PRs and pushes to
+The workflow does not poll container health. Compose still waits for a healthy
+database before starting the API. Verify service readiness manually using the
+[migration runbook](docs/container-migration-runbook.md#4-verify-before-retiring-old-sources).
+The workflow does not run the backend tests either; the **Tests** workflow (`tests.yaml`) gates PRs and pushes to
 `svtlvtv`, so merge only green changes before deploying.
 
 The Compose layout the `sed` strip depends on is described in the header comment of
@@ -210,8 +237,10 @@ The target server must have:
 - the `docker-compose` executable;
 - an SSH user that can create `DEPLOY_DIR` and run Docker commands;
 - Tailscale connectivity from the GitHub Actions runner to `svtlv`;
-- Tailscale address `100.105.140.19` and port `8092` available for `lampa-web`;
+- port `8092` available for `lampa-web`, reachable through LAN or Tailscale;
 - loopback port `5434` (`lampa-db`) free;
+- TCP ports `8090` and `9117` and container names `torrserver` and `jackett` freed
+  by the manual handover, with the three preserved bind directories available;
 - a `svtlv-lampa` client in the Svtlv Keycloak realm, set up as described in
   [`backend/README.md`](backend/README.md#keycloak-prerequisites).
 
@@ -226,7 +255,7 @@ Secrets**:
 
 | Secret | Description |
 | --- | --- |
-| `DEPLOY_DIR` | Absolute deployment path, such as `/opt/svtlvtv/lampa-web` |
+| `DEPLOY_DIR` | Existing deployment path `/home/deploy/svtlvtv`; preserve its basename for project/volume identity |
 | `TAILSCALE_AUTHKEY` | Auth key for runner tailnet access |
 | `SSH_USER` | User that performs the remote deployment |
 | `SSH_PRIVATE_KEY` | Private SSH key authorized for `SSH_USER` on the server |
@@ -246,8 +275,8 @@ key rotation is not implemented. `LAMPA_DB_PASSWORD` applies only when the
 out the repository and push the images produced by the workflow.
 
 The workflow hardcodes `svtlv:8092` and `http://` in the MSX build, connects to
-`svtlv` over Tailscale, and binds the released web service to
-`100.105.140.19:8092`. The public URL and Keycloak Authority are checked into
+`svtlv` over Tailscale, and publishes the released web service as `8092:80` on all
+host interfaces. The public URL and Keycloak Authority are checked into
 the environment-specific appsettings files.
 
 ### Run a deployment
@@ -263,10 +292,10 @@ the **Run workflow** button. Once it is available:
 No deployment occurs until an operator completes these steps.
 
 The workflow creates the directory configured by `DEPLOY_DIR` automatically.
-With `DEPLOY_DIR=/opt/svtlvtv/lampa-web`, a successful run produces:
+With `DEPLOY_DIR=/home/deploy/svtlvtv`, a successful run produces:
 
 ```text
-/opt/svtlvtv/lampa-web/
+/home/deploy/svtlvtv/
 ├── .env
 └── docker-compose.yaml
 ```
@@ -283,7 +312,7 @@ deployments.
 On the server:
 
 ```bash
-DEPLOY_DIR=/opt/svtlvtv/lampa-web
+DEPLOY_DIR=/home/deploy/svtlvtv
 cd "$DEPLOY_DIR"
 PUBLIC_URL=http://svtlv:8092
 docker-compose ps lampa-web
@@ -292,8 +321,8 @@ docker-compose logs --tail 100 lampa-web
 curl --fail "$PUBLIC_URL/"
 ```
 
-With a Tailscale bind address the web port answers only on that address, not on
-`127.0.0.1`, so the check uses the public URL.
+The web port is published on all host interfaces; checking the public URL also
+verifies the intended client route.
 
 Also check the API and its database. The health port is not published on the
 host, so query it from inside the container:
@@ -310,11 +339,29 @@ unhealthy, when Keycloak is unreachable. The session request goes through the we
 proxy and answers `200` with `{"authenticated":false}`. The startup log names the
 environment selected by the workflow input.
 
+Check the vendor health states too:
+
+```bash
+docker inspect --format '{{.Name}} {{.State.Status}} {{.State.Health.Status}}' torrserver jackett
+```
+
+Healthy HTTP endpoints do not establish working searches, saved data or playback.
+Follow the runbook's private data and credential comparisons, then the
+[playback validation procedure](docs/parallel-playback-validation.md). Tuning
+candidates and three-viewer 1080p/single-viewer 4K capacity remain unverified until
+those live checks pass. The guide also documents the bounded, read-only Linux
+resource collector at `devops/measure-playback.sh` (Bash and Python 3.8 or newer).
+
 ### Roll back
 
 The workflow has no rollback inputs. To roll back, revert the offending commit on
 `svtlvtv` and start the workflow again; it rebuilds and deploys `latest`. The
 `lampa_db_data` volume survives redeployments.
+
+For a vendor upgrade or initial handover rollback, also follow the
+[upgrade-aware recovery procedure](docs/container-migration-runbook.md#manual-rollback-after-an-upgrade).
+Reverting an image does not restore bind data rewritten by the newer binary.
+Stop writers and use verified pre-upgrade backups when compatibility requires it.
 
 ### Troubleshooting
 
@@ -327,11 +374,12 @@ The workflow has no rollback inputs. To roll back, revert the offending commit o
 - **GHCR returns `denied` or `unauthorized`** — verify that `GHCR_PAT` belongs
   to a user with package access and includes `read:packages`.
 - **Port is already allocated** — stop the conflicting service before deploying
-  on `100.105.140.19:8092`.
+  on port `8092`; use the manual handover for old TorrServer/Jackett containers.
 - **Container is unhealthy** — inspect
   `docker-compose logs --tail 100 lampa-web` and confirm that Apache can serve
   `/` inside the container.
-- **`svtlvtv_lampa_api` is not healthy after 3 minutes** — inspect
+- **Stack startup failed** — inspect the Compose error and the runbook's
+  service-specific checks. For API failures, inspect
   `docker-compose logs --tail 100 lampa-api lampa-db`; the usual causes are a
   wrong `LAMPA_DB_PASSWORD` for an already initialized database volume or a
   malformed `LAMPA_API_DATA_KEY`.
@@ -340,8 +388,6 @@ The workflow has no rollback inputs. To roll back, revert the offending commit o
   container; deploy Test or Production.
 - **Deploy must run from the default branch** — start the workflow from
   `svtlvtv`; merge the change there first.
-- **Stripped docker-compose check fails** — a Compose edit broke the layout rules
-  in the header comment of `devops/docker-compose.yaml`; fix the layout.
 - **Tests fail** — run `make lint`, `make test` and `make race` in `backend/` as
   described in [`backend/README.md`](backend/README.md).
 

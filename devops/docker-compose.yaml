@@ -1,5 +1,7 @@
 # local runs build the images from this file: copy .env.example to .env, then
-# docker-compose up -d --build
+# docker compose -p lampa up -d --build lampa-web lampa-api
+# starting vendor services also uses fixed names/ports and existing absolute binds;
+# follow docs/container-migration-runbook.md before their initial adoption.
 #
 # the deploy workflow swaps every "<service>:dev" image for its ghcr.io latest tag and deletes each
 # build block with sed, from its build key line through its dockerfile line, so the layout of
@@ -41,7 +43,7 @@ services:
       # applies only on first init of lampa_db_data; rotating it later needs ALTER ROLE first
       POSTGRES_PASSWORD: ${LAMPA_DB_PASSWORD:?Set LAMPA_DB_PASSWORD for the lampa database role}
     ports:
-      # loopback only: reachable by a Development "go run" on the host, never from outside
+      # published on host interfaces for Hermes queries and a local Development "go run"
       - "5434:5432"
     volumes:
       # postgres 18+ images keep PGDATA in a versioned subdirectory of /var/lib/postgresql
@@ -84,6 +86,74 @@ services:
     networks:
       - default
       - monitoring_external
+
+  torrserver:
+    image: ghcr.io/yourok/torrserver:MatriX.150
+    container_name: torrserver
+    user: "0:0"
+    restart: unless-stopped
+    # the image entrypoint builds the existing command from these variables;
+    # dontkill preserves signal handling, so a normal stop can reach the kill deadline
+    environment:
+      TS_CONF_PATH: /opt/ts/config
+      TS_LOG_PATH: /opt/ts/log
+      TS_TORR_DIR: /opt/ts/torrents
+      TS_PORT: "8090"
+      TS_DONTKILL: "1"
+      GODEBUG: madvdontneed=1
+    ports:
+      - "8090:8090/tcp"
+    volumes:
+      # complete pre-copied data; finalize the offline sync before first adoption
+      - /home/deploy/svtlvtv/torrserver/config:/opt/ts/config
+      - /home/deploy/svtlvtv/torrserver/cache:/opt/ts/torrents
+    healthcheck:
+      # version-only endpoint: no torrent access, reader activity or cache lifetime change
+      test: ["CMD", "wget", "-q", "-T", "3", "-O", "/dev/null", "http://127.0.0.1:8090/echo"]
+      interval: 30s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
+    networks:
+      default:
+        aliases:
+          - torrserver
+      monitoring_external:
+        aliases:
+          - torrserver
+
+  jackett:
+    image: lscr.io/linuxserver/jackett:v0.24.3030-ls30
+    container_name: jackett
+    restart: unless-stopped
+    # retain the root s6 supervisor; it runs Jackett as PUID:PGID.
+    # AUTO_UPDATE stays absent so the vendor launcher uses --NoUpdates.
+    environment:
+      PUID: "1000"
+      PGID: "1000"
+      TZ: Asia/Jerusalem
+      XDG_DATA_HOME: /config
+      XDG_CONFIG_HOME: /config
+      TMPDIR: /run/jackett-temp
+    ports:
+      - "9117:9117/tcp"
+    volumes:
+      # complete pre-copied config, including credentials; finalize the offline sync
+      - /home/deploy/svtlvtv/jackett/config:/config
+    healthcheck:
+      # anonymous HTTP readiness only; no indexer search or Torznab request
+      test: ["CMD", "curl", "-fsS", "--max-time", "3", "--output", "/dev/null", "http://127.0.0.1:9117/health"]
+      interval: 30s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
+    networks:
+      default:
+        aliases:
+          - jackett
+      monitoring_external:
+        aliases:
+          - jackett
 
 networks:
   monitoring_external:

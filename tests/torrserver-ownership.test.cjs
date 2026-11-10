@@ -9,7 +9,7 @@ const {test} = require('node:test');
 const source = fs.readFileSync(path.join(__dirname, '../svtlv/torrserver-ownership.js'), 'utf8');
 const html = fs.readFileSync(path.join(__dirname, '../index.html'), 'utf8');
 const bundle = fs.readFileSync(path.join(__dirname, '../app.min.js'), 'utf8');
-const ipSource = bundle.match(/  function ip\(\) \{[\s\S]*?\n  \}/)[0];
+const ipSource = bundle.slice(bundle.indexOf('  // svtlv: keep a working TorrServer'), bundle.indexOf('  /**', bundle.indexOf('  // svtlv: keep a working TorrServer'))) + bundle.match(/  function ip\(\) \{[\s\S]*?\n  \}/)[0];
 const key = 'svtlv_torrserver_guest_hashes';
 const X = 'a'.repeat(40), Y = 'b'.repeat(40), Z = 'c'.repeat(64);
 const id = url => crypto.createHash('sha256').update(url.trim().toLowerCase().replace(/^https?:\/\//, '').replace(/\/+$/, '')).digest('hex');
@@ -45,11 +45,14 @@ function page(options = {}) {
     },
     Utils: {hash() { throw new Error('short hashes must not be used'); }}
   };
+  Lampa.Storage.value = Lampa.Storage.get;
   Lampa.Torserver.ip = vm.runInNewContext(ipSource + '\nip;', {Storage: Lampa.Storage});
   for (const name of ['my', 'add', 'hash', 'remove', 'drop']) {
     Lampa.Torserver[name] = function (...args) {
+      let endpoint;
+      try { endpoint = Lampa.Torserver.ip && Lampa.Torserver.ip(); } catch (_) {}
       const operation = {
-        name, args, receiver: this,
+        name, args, receiver: this, endpoint,
         success(...result) { args[name === 'my' ? 0 : 1]?.apply(operation, result); },
         fail(...result) { args[name === 'my' ? 1 : 2]?.apply(operation, result); }
       };
@@ -440,21 +443,25 @@ for (const state of [guest, account()]) {
     ['http://primary', '', 'two', 'http://primary'],
     ['', 'http://secondary', 'invalid', 'http://secondary']
   ]) {
-    test('membership follows the actual bundle endpoint: ' + state.status + '/' + [one, two, selection].join('/'), () => {
+    test('union includes the actual bundle endpoint and removal releases every configured ID: ' + state.status + '/' + [one, two, selection].join('/'), () => {
       const p = page({state, settings: {torrserver_url: one, torrserver_url_two: two, torrserver_use_link: selection}});
       p.seed([X], effective);
       const result = p.list();
       if (state.status === 'signed_in') {
         assert.equal(p.requests[0].config.url, '/api/v1/torrservers/' + id(effective) + '/hashes');
-        p.requests[0].success({hashes: [X]});
+        p.requests.forEach(request => request.success({hashes: [X]}));
       }
       p.calls[0].success([{hash: X}, {hash: Y}]);
       assert.deepEqual(result.success, [[[{hash: X}]]]);
+      const start = p.requests.length;
       p.Lampa.Torserver.remove(X);
       if (state.status === 'signed_in') {
-        assert.equal(p.requests[1].config.url, '/api/v1/torrservers/' + id(effective) + '/hashes/' + X);
-        assert.equal(p.requests[1].config.type, 'DELETE');
-        p.requests[1].success('');
+        assert.equal(p.requests[start].config.url, '/api/v1/torrservers/' + id(effective) + '/hashes/' + X);
+        for (let i = start; i < p.requests.length; i++) {
+          assert.equal(p.requests[i].config.type, 'DELETE');
+          p.requests[i].success('');
+        }
+        assert.equal(p.requests.length - start, new Set([one, two].filter(Boolean).map(id)).size);
       } else assert.deepEqual(p.hashes(effective), []);
       assert.equal(p.calls.some(call => call.name === 'remove'), false);
       assert.equal(p.settings.torrserver_url, one);
@@ -462,14 +469,18 @@ for (const state of [guest, account()]) {
     });
   }
 
-  test('switching to an empty link retains the effective server and its pending list: ' + state.status, () => {
+  test('switching to an empty link invalidates the pending list even with the same fallback: ' + state.status, () => {
     const p = page({state});
     p.seed([X]);
     const result = p.list();
     p.select('two');
     if (state.status === 'signed_in') p.requests[0].success({hashes: [X]});
     p.calls[0].success([{hash: X}]);
-    assert.deepEqual(result.success, [[[{hash: X}]]]);
+    assert.equal(result.success.length + result.fail.length, 0);
+    const fresh = p.list();
+    if (state.status === 'signed_in') p.requests.at(-1).success({hashes: [X]});
+    p.calls.at(-1).success([{hash: X}]);
+    assert.deepEqual(fresh.success, [[[{hash: X}]]]);
   });
 
   for (const first of state.status === 'signed_in' ? ['membership', 'torrent', 'neither'] : ['neither']) {
@@ -540,8 +551,9 @@ for (const state of [guest, account()]) {
         assert.equal(result.success.length + result.fail.length, 0);
         assert.equal(p.notices.length, 0);
         if (state.status === 'guest') p.seed([Y], p.Lampa.Torserver.ip());
+        const start = p.requests.length;
         const fresh = p.list();
-        if (state.status === 'signed_in') p.requests[1].success({hashes: [Y]});
+        if (state.status === 'signed_in') p.requests.slice(start).forEach(request => request.success({hashes: [Y]}));
         p.calls.at(-1).success([{hash: X}, {hash: Y}]);
         assert.deepEqual(fresh.success, [[[{hash: Y}]]]);
       });
@@ -577,7 +589,7 @@ for (const state of [guest, account()]) {
   }
 
   for (const change of ['inactive URL', 'normalized URL', 'normalized selected alias']) {
-    test('same-effective connection changes retain pending lists: ' + state.status + '/' + change, () => {
+    test('same-effective connection changes invalidate pending lists: ' + state.status + '/' + change, () => {
       const p = page({state, settings: {torrserver_url_two: ' HTTP://SERVER:8090/// '}});
       p.seed([X]);
       const result = p.list();
@@ -586,7 +598,7 @@ for (const state of [guest, account()]) {
       if (change === 'normalized selected alias') p.select('two');
       if (state.status === 'signed_in') p.requests[0].success({hashes: [X]});
       p.calls[0].success([{hash: X}]);
-      assert.deepEqual(result.success, [[[{hash: X}]]]);
+      assert.equal(result.success.length + result.fail.length, 0);
     });
   }
 }
@@ -609,11 +621,12 @@ for (const method of ['add', 'hash', 'remove']) for (const status of [204, 401, 
   });
 }
 
-test('membership uses the public resolver rather than independently reading configured fields', () => {
+test('membership keeps the public resolver authoritative and also reads configured IDs', () => {
   const p = page({state: account()});
   p.Lampa.Torserver.ip = () => 'https://effective/path';
   p.list();
   assert.equal(p.requests[0].config.url, '/api/v1/torrservers/' + id('https://effective/path') + '/hashes');
+  assert.equal(p.requests[1].config.url, '/api/v1/torrservers/' + id(p.settings.torrserver_url) + '/hashes');
 });
 
 for (const resolver of [undefined, () => { throw new Error('unavailable'); }, () => null]) {
@@ -736,7 +749,7 @@ test('shared-server acceptance flow isolates accounts, guests and retained membe
   a.select('one');
   g.select('one');
   visible(a, [X]);
-  visible(g, [X]);
+  visible(g, [X, Y]);
   assert.ok(memberships.get('Alice/' + id('server:8090')).has(X), 'existing primary rows retain their IDs');
   g.select('two');
   visible(g, [Y]);
@@ -749,9 +762,9 @@ test('shared-server acceptance flow isolates accounts, guests and retained membe
   add(a, X); add(b, X); add(g, X);
   remove(a, X);
   server(b).delete(X); // Operator deletion changes only the external list.
-  visible(a, []); visible(b, [Y]); visible(g, []);
+  visible(a, []); visible(b, [Y]); visible(g, [Y]);
   add(b, X);
-  visible(a, []); visible(b, [Y, X]); visible(g, [X]); visible(otherGuest, []);
+  visible(a, []); visible(b, [Y, X]); visible(g, [Y, X]); visible(otherGuest, []);
   assert.deepEqual(g.hashes(), [X]);
   assert.equal(g.requests.length + otherGuest.requests.length, 0, 'guest membership stays entirely local');
 });
@@ -1140,3 +1153,486 @@ test('actual bundle publishes the public API before boot and calls wrapped metho
   assert.ok(bundle.includes('Torserver.hash({'));
   assert.ok(bundle.includes('Torserver.remove(data.hash);'));
 });
+
+const twoLinks = {torrserver_url: 'http://lan:8090', torrserver_url_two: 'https://tailnet:8090'};
+const membershipServer = request => request.config.url.split('/')[4];
+function seedBoth(p, first, second) {
+  p.items[key] = JSON.stringify({version: 1, servers: {
+    [id(p.settings.torrserver_url)]: first, [id(p.settings.torrserver_url_two)]: second
+  }});
+}
+
+for (const state of [guest, account()]) for (const selection of ['one', 'two']) {
+  test('both links share membership but intersect only the selected live list: ' + state.status + '/' + selection, () => {
+    const p = page({state, settings: {...twoLinks, torrserver_use_link: selection}});
+    seedBoth(p, [X], [Y, Z]);
+    const result = p.list();
+    if (state.status === 'signed_in') {
+      assert.equal(p.requests.length, 2);
+      p.requests[1].success({hashes: membershipServer(p.requests[1]) === id(twoLinks.torrserver_url) ? [X] : [Y, Z]});
+      p.calls[0].success([{hash: X}, {hash: Y.toUpperCase()}, {hash: 'bad'}]);
+      assert.equal(result.success.length, 0, 'wait for every membership source');
+      p.requests[0].success({hashes: membershipServer(p.requests[0]) === id(twoLinks.torrserver_url) ? [X] : [Y, Z]});
+    } else p.calls[0].success([{hash: X}, {hash: Y.toUpperCase()}, {hash: 'bad'}]);
+    assert.deepEqual(result.success, [[[{hash: X}, {hash: Y.toUpperCase()}]]]);
+    assert.equal(result.fail.length, 0);
+    assert.equal(p.calls.length, 1, 'never list or probe the inactive TorrServer');
+    assert.equal(p.calls[0].endpoint, p.Lampa.Torserver.ip());
+    // Z remains owned even though it is not present on this physical endpoint.
+    if (state.status === 'guest') assert.deepEqual(p.hashes(twoLinks.torrserver_url_two), [Y, Z]);
+  });
+
+  test('same-server aliases expose a claim after switching without claiming the other ID: ' + state.status + '/' + selection, () => {
+    const p = page({state, settings: {...twoLinks, torrserver_use_link: selection}});
+    const used = p.Lampa.Torserver.ip();
+    const other = selection === 'one' ? twoLinks.torrserver_url_two : twoLinks.torrserver_url;
+    let saved = 0;
+    p.Lampa.Torserver.add({}, () => saved++);
+    p.calls[0].success({hash: X});
+    if (state.status === 'signed_in') {
+      assert.equal(p.requests.length, 1);
+      assert.equal(membershipServer(p.requests[0]), id(used));
+      p.requests[0].success('');
+    } else assert.deepEqual(p.hashes(other), []);
+    assert.equal(saved, 1);
+    p.select(selection === 'one' ? 'two' : 'one');
+    const start = p.requests.length;
+    const list = p.list();
+    p.requests.slice(start).forEach(request => request.success({hashes: membershipServer(request) === id(used) ? [X] : []}));
+    p.calls.at(-1).success([{hash: X}, {hash: Y}]);
+    assert.deepEqual(list.success, [[[{hash: X}]]]);
+    let removed = 0;
+    const releaseStart = p.requests.length;
+    p.Lampa.Torserver.remove(X, () => removed++);
+    for (let i = releaseStart; i < p.requests.length; i++) p.requests[i].success('');
+    assert.equal(removed, 1);
+    if (state.status === 'signed_in') assert.equal(p.requests.length - releaseStart, 2);
+    else {
+      assert.deepEqual(p.hashes(used), []);
+      assert.deepEqual(p.hashes(other), []);
+    }
+    assert.equal(p.calls.some(call => ['remove', 'drop'].includes(call.name)), false);
+    assert.equal(p.settings.torrserver_use_link, selection === 'one' ? 'two' : 'one');
+  });
+}
+
+for (const selection of ['one', 'two']) test('equivalent normalized URLs use one GET and DELETE: ' + selection, () => {
+  const p = page({state: account(), settings: {torrserver_url: 'http://SERVER:8090/',
+    torrserver_url_two: ' HTTPS://server:8090/// ', torrserver_use_link: selection}});
+  const result = p.list();
+  assert.equal(p.requests.length, 1);
+  p.requests[0].success({hashes: [X, X.toUpperCase(), Z]});
+  p.calls[0].success([{hash: X}, {hash: Z}]);
+  assert.deepEqual(result.success, [[[{hash: X}, {hash: Z}]]]);
+  p.Lampa.Torserver.remove(X);
+  p.requests[1].success('');
+  assert.equal(p.requests.length, 2);
+});
+
+for (const failed of [0, 1]) for (const cause of ['network', 'malformed', 'status']) {
+  test('either membership lookup failing hides the whole union: ' + failed + '/' + cause, () => {
+    const p = page({state: account(), settings: twoLinks});
+    p.seed([X]);
+    const list = p.list();
+    p.requests[1 - failed].success({hashes: [X]});
+    p.calls[0].success([{hash: X}]);
+    assert.equal(list.success.length, 0);
+    if (cause === 'network') p.requests[failed].fail(503);
+    if (cause === 'malformed') p.requests[failed].success({hashes: [Y, 'bad']});
+    if (cause === 'status') p.requests[failed].success({hashes: [Y]}, 201);
+    assert.equal(list.success.length, 0);
+    assert.equal(list.fail.length, 1);
+    assert.equal(p.notices.length, 1);
+    assert.deepEqual(p.hashes(), [X], 'never fall back to guest rows');
+    assert.equal(p.requests.every(request => request.config.type === 'GET'), true);
+  });
+}
+
+for (const status of [0, 503, 200]) test('partial account release fails and idempotent retry releases both: ' + status, () => {
+  const p = page({state: account(), settings: twoLinks, activity: {component: 'mytorrents'}});
+  const rows = new Map([id(twoLinks.torrserver_url), id(twoLinks.torrserver_url_two)].map(server => [server, new Set([X, Y])]));
+  let success = 0, fail = 0;
+  p.flush();
+  p.Lampa.Torserver.remove(X, () => success++, () => fail++);
+  rows.get(membershipServer(p.requests[0])).delete(X);
+  p.requests[0].success('');
+  assert.equal(success, 0, 'first release alone cannot acknowledge removal');
+  if (status === 200) p.requests[1].success('', status);
+  else p.requests[1].fail(status);
+  assert.equal(success, 0);
+  assert.equal(fail, 1);
+  assert.equal(p.notices.length, 1);
+  p.flush();
+  assert.equal(p.replacements.length, 2, 'reconcile the optimistic card after partial failure');
+  const start = p.requests.length;
+  p.Lampa.Torserver.remove(X, () => success++, () => fail++);
+  for (let i = start; i < p.requests.length; i++) {
+    const request = p.requests[i];
+    assert.equal(request.config.type, 'DELETE');
+    assert.equal(request.config.headers['X-Lampa-Expected-User'], 'Alice');
+    rows.get(membershipServer(request)).delete(X); // Missing rows also return 204.
+    request.success('');
+  }
+  assert.equal(p.requests.length - start, 2);
+  assert.equal(success, 1);
+  assert.equal(fail, 1);
+  assert.deepEqual([...rows.values()].map(hashes => [...hashes]), [[Y], [Y]]);
+  assert.equal(p.calls.length, 0);
+});
+
+for (const index of [0, 1]) for (const status of [401, 409]) {
+  test('release identity failure stops the chain without retrying: ' + index + '/' + status, () => {
+    const p = page({state: account(), settings: twoLinks});
+    let success = 0, fail = 0;
+    p.Lampa.Torserver.remove(X, () => success++, () => fail++);
+    if (index) p.requests[0].success('');
+    p.requests[index].fail(status);
+    assert.equal(p.requests.length, index + 1);
+    assert.equal(success, 0);
+    assert.equal(fail, 1);
+    assert.equal(p.window.svtlv_account_state.status, 'checking');
+    assert.equal(p.items[key], undefined);
+  });
+}
+
+for (const change of ['inactive URL', 'inactive URL away/back', 'selector away/back', 'account away/back']) {
+  for (const method of ['my', 'add', 'hash', 'remove']) test('both-link scope fences late operations: ' + change + '/' + method, () => {
+    const p = page({state: account(), settings: {...twoLinks, torrserver_savedb: true}});
+    let success = 0, fail = 0;
+    if (method === 'my') p.Lampa.Torserver.my(() => success++, () => fail++);
+    else p.Lampa.Torserver[method](method === 'remove' ? X : {}, () => success++, () => fail++);
+    if (method === 'add' || method === 'hash') p.calls[0].success({hash: X});
+    if (change.startsWith('inactive URL')) {
+      p.change('torrserver_url_two', 'http://replacement');
+      if (change.endsWith('back')) p.change('torrserver_url_two', twoLinks.torrserver_url_two);
+    } else if (change === 'selector away/back') { p.select('two'); p.select('one'); }
+    else { p.setState(account('Bob', 2)); p.setState(account('Alice', 3)); }
+    const count = p.requests.length;
+    for (const request of p.requests.slice()) {
+      request.success(method === 'my' ? {hashes: [X]} : '');
+      request.fail(401);
+    }
+    if (method === 'my') p.calls[0].success([{hash: X}]);
+    assert.equal(success, Number(method === 'hash'));
+    assert.equal(fail, 0);
+    assert.equal(p.requests.length, count, 'a stale release cannot start its second DELETE');
+    assert.equal(p.window.svtlv_account_state.status, 'signed_in');
+    assert.equal(p.notices.length, 0);
+  });
+}
+
+for (const state of [guest, account()]) test('superseded lists cannot replace a newer list: ' + state.status, () => {
+  const p = page({state, settings: twoLinks});
+  seedBoth(p, [X], [Y]);
+  const older = p.list();
+  const start = p.requests.length;
+  const newer = p.list();
+  p.requests.slice(start).forEach(request => request.success({hashes: [Y]}));
+  p.calls[1].success([{hash: Y}]);
+  p.requests.slice(0, start).forEach(request => request.fail(401));
+  p.calls[0].success([{hash: X}]);
+  assert.deepEqual(newer.success, [[[{hash: Y}]]]);
+  assert.equal(older.success.length + older.fail.length, 0);
+  assert.equal(p.window.svtlv_account_state.status, state.status);
+});
+
+for (const state of [guest, account()]) test('new removal fences a delayed add of the same hash: ' + state.status, () => {
+  const p = page({state, settings: twoLinks});
+  let added = 0, removed = 0;
+  p.Lampa.Torserver.add({}, () => added++);
+  p.Lampa.Torserver.remove(X, () => removed++);
+  for (let i = 0; i < p.requests.length; i++) p.requests[i].success('');
+  p.calls[0].success({hash: X});
+  assert.equal(removed, 1);
+  assert.equal(added, 0);
+  assert.equal(p.requests.some(request => request.config.type === 'PUT'), false);
+  if (state.status === 'guest') assert.deepEqual(p.hashes(), []);
+});
+
+test('same-hash operation acknowledgements cannot supersede newer removal or claim', () => {
+  const p = page({state: account(), settings: twoLinks});
+  let saved = 0, removed = 0;
+  p.Lampa.Torserver.add({}, () => saved++);
+  p.calls[0].success({hash: X});
+  p.Lampa.Torserver.remove(X, () => removed++);
+  p.requests[0].fail(401);
+  assert.equal(p.window.svtlv_account_state.status, 'signed_in');
+  p.Lampa.Torserver.add({}, () => saved++);
+  p.calls[1].success({hash: X});
+  p.requests[1].success('');
+  assert.equal(p.requests.length, 3, 'superseded removal cannot release the inactive ID');
+  p.requests[2].success('');
+  assert.equal(saved, 1);
+  assert.equal(removed, 0);
+});
+
+// Apply a mutation only when its controlled transport completes. Callback fences
+// alone cannot undo these persisted rows, so the final state matters too.
+function membershipStore() {
+  const rows = new Map();
+  function hashes(user, server) {
+    const key = user + '/' + server;
+    if (!rows.has(key)) rows.set(key, new Set());
+    return rows.get(key);
+  }
+  return {
+    hashes,
+    commit(request) {
+      const {config} = request;
+      const values = hashes(config.headers['X-Lampa-Expected-User'], membershipServer(request));
+      const hash = config.url.split('/').at(-1);
+      if (config.type === 'PUT') values.add(hash);
+      else { assert.equal(config.type, 'DELETE'); values.delete(hash); }
+      request.success('');
+    }
+  };
+}
+
+test('removal waits for an in-flight claim before releasing both persisted memberships', () => {
+  const p = page({state: account(), settings: twoLinks}), store = membershipStore();
+  const servers = Object.values(twoLinks).map(id);
+  for (const server of servers) store.hashes('Alice', server).add(Y);
+  store.hashes('Alice', servers[1]).add(X);
+  let saved = 0, removed = 0;
+  p.Lampa.Torserver.add({}, () => saved++);
+  p.calls[0].success({hash: X});
+  const earlier = p.requests[0];
+  p.Lampa.Torserver.remove(X, () => removed++);
+  assert.equal(p.requests.length, 1, 'a DELETE cannot overtake the outstanding PUT');
+  assert.equal(removed, 0);
+  store.commit(earlier);
+  assert.equal(saved, 0, 'the superseded claim has no success acknowledgement');
+  assert.equal(p.requests[1].config.type, 'DELETE');
+  earlier.success(''); earlier.fail(401);
+  assert.equal(p.requests.length, 2, 'duplicate replies must not advance the queue again');
+  assert.equal(p.window.svtlv_account_state.status, 'signed_in');
+  store.commit(p.requests[1]);
+  assert.equal(removed, 0, 'both endpoint rows must be released before success');
+  store.commit(p.requests[2]);
+  assert.equal(removed, 1);
+  assert.deepEqual(servers.map(server => [...store.hashes('Alice', server)]), [[Y], [Y]]);
+});
+
+test('a new claim waits for an in-flight removal and survives its late completion', () => {
+  const p = page({state: account(), settings: twoLinks}), store = membershipStore();
+  const server = id(twoLinks.torrserver_url);
+  store.hashes('Alice', server).add(X);
+  let saved = 0, removed = 0;
+  p.Lampa.Torserver.remove(X, () => removed++);
+  const earlier = p.requests[0];
+  p.Lampa.Torserver.add({}, () => saved++);
+  p.calls[0].success({hash: X});
+  assert.equal(p.requests.length, 1, 'a PUT cannot overtake the outstanding DELETE');
+  store.commit(earlier);
+  assert.equal(store.hashes('Alice', server).has(X), false);
+  assert.equal(p.requests[1].config.type, 'PUT');
+  assert.equal(p.requests.length, 2, 'superseded removal cannot release the second endpoint');
+  store.commit(p.requests[1]);
+  earlier.success(''); earlier.fail(401);
+  assert.equal(store.hashes('Alice', server).has(X), true);
+  assert.equal(saved, 1); assert.equal(removed, 0);
+  assert.equal(p.window.svtlv_account_state.status, 'signed_in');
+});
+
+test('scope changes retain transport ordering while skipping stale queued mutations', () => {
+  const p = page({state: account(), settings: twoLinks}), store = membershipStore();
+  let stale = 0, saved = 0;
+  p.Lampa.Torserver.add({}, () => stale++);
+  p.calls[0].success({hash: X});
+  p.Lampa.Torserver.remove(X, () => stale++, () => stale++);
+  switchAwayAndBack(p);
+  p.Lampa.Torserver.add({}, () => saved++);
+  p.calls[1].success({hash: X});
+  assert.equal(p.requests.length, 1, 'scope reset must not discard the pending transport');
+  store.commit(p.requests[0]);
+  assert.equal(p.requests.length, 2);
+  assert.equal(p.requests[1].config.type, 'PUT', 'the stale queued DELETE must never be sent');
+  store.commit(p.requests[1]);
+  assert.equal(store.hashes('Alice', id(twoLinks.torrserver_url)).has(X), true);
+  assert.equal(saved, 1); assert.equal(stale, 0);
+  assert.equal(p.notices.length, 0);
+});
+
+for (const outcome of ['http', 'timeout', 'unexpected status']) test('failed claim releases a queued removal: ' + outcome, () => {
+  const p = page({state: account(), settings: twoLinks}), store = membershipStore();
+  const servers = Object.values(twoLinks).map(id);
+  for (const server of servers) store.hashes('Alice', server).add(X);
+  let removed = 0;
+  p.Lampa.Torserver.add({}); p.calls[0].success({hash: X});
+  p.Lampa.Torserver.remove(X, () => removed++);
+  if (outcome === 'unexpected status') p.requests[0].success('', 200);
+  else if (outcome === 'timeout') p.requests[0].config.error({status: 0}, 'timeout');
+  else p.requests[0].fail(503);
+  assert.equal(p.requests[1].config.type, 'DELETE');
+  store.commit(p.requests[1]); store.commit(p.requests[2]);
+  assert.equal(removed, 1);
+  assert.deepEqual(servers.map(server => [...store.hashes('Alice', server)]), [[], []]);
+});
+
+test('synchronous transport failure releases the queue for a later removal retry', () => {
+  const options = {state: account(), settings: twoLinks};
+  const p = page(options), store = membershipStore();
+  let removed = 0, failed = 0;
+  p.Lampa.Torserver.add({}); p.calls[0].success({hash: X});
+  p.Lampa.Torserver.remove(X, () => removed++, () => failed++);
+  options.ajaxThrows = true;
+  store.commit(p.requests[0]);
+  assert.equal(failed, 1); assert.equal(removed, 0);
+  options.ajaxThrows = false;
+  p.Lampa.Torserver.remove(X, () => removed++, () => failed++);
+  assert.equal(p.requests[1].config.type, 'DELETE');
+  store.commit(p.requests[1]); store.commit(p.requests[2]);
+  assert.equal(removed, 1); assert.equal(failed, 1);
+  assert.equal(store.hashes('Alice', id(twoLinks.torrserver_url)).has(X), false);
+});
+
+test('pending mutations do not block independent hashes, endpoints or account owners', () => {
+  const p = page({state: account(), settings: twoLinks}), store = membershipStore();
+  let saved = 0;
+  const claim = hash => {
+    p.Lampa.Torserver.add({}, () => saved++);
+    p.calls.at(-1).success({hash});
+  };
+  claim(X); claim(Y);
+  assert.equal(p.requests.length, 2, 'another hash can persist while X is pending');
+  store.commit(p.requests[1]); assert.equal(saved, 1);
+  p.select('two'); claim(X);
+  assert.equal(p.requests.length, 3, 'another endpoint can persist while the first is pending');
+  p.setState(account('Bob', 2)); claim(X);
+  assert.equal(p.requests.length, 4, 'another user must not wait for the prior user');
+  store.commit(p.requests[3]); assert.equal(saved, 2);
+  store.commit(p.requests[2]); store.commit(p.requests[0]);
+  assert.equal(saved, 2, 'stale owners/endpoints receive no acknowledgement');
+  assert.deepEqual([...store.hashes('Alice', id(twoLinks.torrserver_url))], [Y, X]);
+  assert.deepEqual([...store.hashes('Alice', id(twoLinks.torrserver_url_two))], [X]);
+  assert.deepEqual([...store.hashes('Bob', id(twoLinks.torrserver_url_two))], [X]);
+});
+
+test('independent hash claims keep their callbacks and active-endpoint scope', () => {
+  const p = page({state: account(), settings: twoLinks});
+  let saved = 0;
+  p.Lampa.Torserver.add({}, () => saved++);
+  p.Lampa.Torserver.add({}, () => saved++);
+  p.calls[1].success({hash: Y});
+  p.calls[0].success({hash: X});
+  p.requests[1].success(''); p.requests[0].success('');
+  assert.equal(saved, 2);
+  assert.equal(p.requests.every(request => membershipServer(request) === id(twoLinks.torrserver_url)), true);
+});
+
+for (const state of [guest, account()]) test('removal invalidates pending lists including lists started mid-release: ' + state.status, () => {
+  const p = page({state, settings: twoLinks});
+  seedBoth(p, [X], [X]);
+  const old = p.list();
+  p.Lampa.Torserver.remove(X);
+  const start = p.requests.length;
+  const during = p.list();
+  p.requests.slice(start).forEach(request => request.success({hashes: [X]}));
+  if (state.status === 'signed_in') {
+    const firstDelete = p.requests.find(request => request.config.type === 'DELETE');
+    firstDelete.success('');
+    p.requests.at(-1).success('');
+  }
+  p.calls[0].success([{hash: X}]);
+  p.calls[1].success([{hash: X}]);
+  assert.equal(old.success.length + old.fail.length, 0);
+  if (state.status === 'signed_in') assert.equal(during.success.length + during.fail.length, 0);
+  else assert.equal(during.fail.length, 1, 'atomic guest removal already completed before the new list');
+});
+
+test('guest storage events fence lists captured before another tab removed membership', () => {
+  const p = page({settings: twoLinks});
+  seedBoth(p, [X], [X]);
+  const list = p.list();
+  seedBoth(p, [], []);
+  p.storageEvent();
+  p.calls[0].success([{hash: X}]);
+  assert.equal(list.success.length + list.fail.length, 0);
+});
+
+for (const failed of [false, true]) test('guest release updates both IDs atomically and preserves unrelated membership: ' + failed, () => {
+  const p = page({settings: twoLinks, faults: {silentWrite: failed}});
+  seedBoth(p, [X, Y], [X, Z]);
+  const data = JSON.parse(p.items[key]);
+  data.servers[id('http://unconfigured')] = [X];
+  p.items[key] = JSON.stringify(data);
+  let writes = 0, success = 0, fail = 0;
+  const setItem = p.window.localStorage.setItem;
+  p.window.localStorage.setItem = (...args) => { writes++; setItem(...args); };
+  p.Lampa.Torserver.remove(X, () => success++, () => fail++);
+  assert.equal(writes, 1);
+  assert.equal(success, Number(!failed));
+  assert.equal(fail, Number(failed));
+  assert.deepEqual(p.hashes(twoLinks.torrserver_url), failed ? [X, Y] : [Y]);
+  assert.deepEqual(p.hashes(twoLinks.torrserver_url_two), failed ? [X, Z] : [Z]);
+  assert.deepEqual(p.hashes('http://unconfigured'), [X]);
+  assert.equal(p.calls.length + p.requests.length, 0);
+});
+
+for (const state of [guest, account()]) test('64-character hashes are released canonically across both IDs: ' + state.status, () => {
+  const p = page({state, settings: twoLinks});
+  seedBoth(p, [Z], [Z]);
+  let removed = 0;
+  p.Lampa.Torserver.remove(' ' + Z.toUpperCase() + ' ', () => removed++);
+  for (let i = 0; i < p.requests.length; i++) {
+    assert.ok(p.requests[i].config.url.endsWith('/' + Z));
+    p.requests[i].success('');
+  }
+  assert.equal(removed, 1);
+  if (state.status === 'guest') {
+    assert.deepEqual(p.hashes(twoLinks.torrserver_url), []);
+    assert.deepEqual(p.hashes(twoLinks.torrserver_url_two), []);
+  }
+});
+
+for (const method of ['add', 'hash']) test('inactive URL edits fence claims before the torrent response: ' + method, () => {
+  const p = page({state: account(), settings: {...twoLinks, torrserver_savedb: true}});
+  let success = 0;
+  p.Lampa.Torserver[method]({}, () => success++);
+  p.change('torrserver_url_two', 'http://replacement');
+  p.change('torrserver_url_two', twoLinks.torrserver_url_two);
+  p.calls[0].success({hash: X});
+  assert.equal(p.requests.length, 0);
+  assert.equal(success, Number(method === 'hash'));
+});
+
+test('configuring an endpoint discards callbacks from an older unconfigured list', () => {
+  const p = page({settings: {torrserver_url: ''}});
+  const list = p.list();
+  p.changeURL(twoLinks.torrserver_url);
+  p.calls[0].fail('unconfigured');
+  assert.equal(list.success.length + list.fail.length, 0);
+});
+
+for (const state of [guest, account()]) {
+  test('transport fallback preserves a pending membership-union list: ' + state.status, () => {
+    const p = page({state, settings: twoLinks});
+    seedBoth(p, [X], [Y]);
+    const result = p.list();
+    p.Lampa.Torserver.ip = () => twoLinks.torrserver_url_two;
+    for (const request of p.requests) request.success({hashes: [X, Y]});
+    p.calls[0].success([{hash: X}, {hash: Y}, {hash: Z}]);
+    assert.deepEqual(result.success, [[[ {hash: X}, {hash: Y} ]]]);
+    assert.equal(p.notices.length, 0);
+  });
+
+  for (const method of ['add', 'hash']) {
+    test('fallback claim belongs to the endpoint that answered: ' + state.status + '/' + method, () => {
+      const p = page({state, settings: {...twoLinks, torrserver_savedb: true}});
+      let saved = 0;
+      p.Lampa.Torserver[method]({}, () => saved++);
+      p.Lampa.Torserver.ip = () => twoLinks.torrserver_url_two;
+      p.calls[0].success({hash: X}, twoLinks.torrserver_url_two);
+      if (state.status === 'signed_in') {
+        assert.equal(p.requests.length, 1);
+        assert.equal(membershipServer(p.requests[0]), id(twoLinks.torrserver_url_two));
+        p.requests[0].success('');
+      } else {
+        assert.deepEqual(p.hashes(twoLinks.torrserver_url_two), [X]);
+        assert.deepEqual(p.hashes(twoLinks.torrserver_url), []);
+      }
+      assert.equal(saved, 1);
+      assert.equal(p.notices.length, 0);
+    });
+  }
+}

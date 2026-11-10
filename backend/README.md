@@ -15,6 +15,50 @@ The `svtlv/torrserver-ownership.js` add-on uses the membership routes while cont
 call TorrServer directly for adding, listing and playback. The API never contacts TorrServer
 and receives neither its URL nor its credentials through the membership routes.
 
+## Playback and container handover
+
+The stack now includes pinned TorrServer and Jackett services. The
+[service inventory](../docs/container-migration-inventory.md) records the preserved
+configuration, source/destination bind mapping, ports and release image tags. The
+[manual cutover runbook](../docs/container-migration-runbook.md) covers old-writer
+shutdown, consistent backup, relocation, verification and upgrade-aware
+rollback. PR6 relocates host binds to `/home/deploy/svtlvtv/torrserver/config`,
+`/home/deploy/svtlvtv/torrserver/cache` and `/home/deploy/svtlvtv/jackett/config` (unchanged
+container paths `/opt/ts/config`, `/opt/ts/torrents` and `/config`). The November 10,
+2026 live pre-copy used `rsync -aHAX --numeric-ids`; running sources mean it is
+not a consistent backup or verified cutover. Keep original sources
+`/var/lib/torrserver/{config,cache}` and `/opt/svtlvtv/jackett/config` until cutover.
+Before new writes, stop old writers, final-sync offline, require zero unintended
+checksum/metadata differences and verify a complete independent pre-upgrade backup.
+Only after successful deployment/acceptance may separately approved source-only
+cleanup occur; keep destination paths. Rollback depends on compatible original
+data and reconciliation of any new writes. No deploy-time guards are added.
+Every later deployment redeploys both services and may interrupt playback/search.
+
+My Torrents unions membership for both configured URLs, filtered by the active
+server's live list. Removal clears only this user's membership under both IDs;
+it never deletes the server torrent. Built-in dialog close and discovery timeout
+now cancel local requests/timers without hash-wide drops. Explicit public
+`Lampa.Torserver.drop` remains available. Paused playback keeps its heartbeat;
+local cancellation does not guarantee immediate server cache expiry.
+
+Account sync distinguishes startup, load, background refresh, apply, save and
+storage failures. An unchanged background read displays "Could not refresh
+Account data"; "Not saved to Account" is reserved for failed save intent,
+including a read needed to save dirty edits. Dirty values and retries survive
+recoverable failures; repeated notifications remain suppressed per failure streak.
+`window.svtlv_sync_diagnostics()` returns copies of at most 40 page-local records:
+`phase`, `method`, `status`, `category`, `elapsed_ms` and `duration_ms`. It retains
+no URL, identity, token, body, setting name/value or exception text and sends
+nothing to another device. Refreshing the page discards it.
+
+The [playback validation procedure](../docs/parallel-playback-validation.md)
+describes the bounded collector, staged unverified tuning, full-settings
+readback/rollback and later three-viewer 1080p/single-viewer 4K acceptance.
+Implementation and automated tests do not establish migration success, the
+reported warning's production cause or measured capacity. Remaining live work
+is tracked in the [incident/capacity follow-up](../docs/backlog/parallel-playback-resource-peaks-and-configuration.md).
+
 ## Layout
 
 ```text
@@ -198,15 +242,21 @@ reads `devops/.env` (gitignored). Test is the default environment:
 cd devops
 cp .env.example .env                               # then replace the placeholder secrets
 docker network create svtlv_monitoring_external    # once
-docker compose -p lampa up -d --build
+docker compose -p lampa up -d --build lampa-web lampa-api
 ```
+
+This local command starts web/API and their DB dependency only. A full-stack
+`up` also starts the fixed-name vendor services using their absolute destination
+data binds under `/home/deploy/svtlvtv/torrserver/` and `/home/deploy/svtlvtv/jackett/`; use the
+runbook for adoption, or isolated synthetic paths/names/ports for a rehearsal.
 
 The API is not published: reach it through the web container's proxy, for example
 `curl http://localhost:8092/api/v1/session` → `{"authenticated":false}`. Health stays
 container-internal: `docker exec svtlvtv_lampa_api curl -s http://localhost:8081/health`.
 
 For Development, start only the DB and run the binary on the host; the base settings already
-point at `localhost:5434` (published on loopback only):
+point at `localhost:5434`. The database is also published on the host's other
+interfaces at port 5434 so Hermes can query it:
 
 ```sh
 cd devops && docker compose -p lampa up -d lampa-db
@@ -407,15 +457,29 @@ Identity, either URL, local selector and guest-storage changes also discard inac
 returning from a detail screen fetches a newly filtered list.
 
 Membership routes accept an opaque `server_id` of 1–64 ASCII letters, digits, underscores
-or hyphens. The add-on derives a 64-character lowercase SHA-256 ID from the effective raw
-endpoint returned by public `Lampa.Torserver.ip()`, trimmed, lowercased, stripped of its
-HTTP(S) scheme and trailing slashes. The page's scheme does not affect the ID, and existing
-URL-1 memberships keep their IDs. Different normalized hosts, paths or ports produce
-different IDs even when both links reach the same physical server. Switching links hides
-one membership set and switching back restores it; adding under one address never claims
-ownership under the other. Missing public API or both URLs empty leaves ownership
-unconfigured. Changes to either URL or the local selector refresh My Torrents; pending
-responses remain bound to the captured account and effective server. The backend
+or hyphens. The add-on derives a 64-character lowercase SHA-256 ID for each configured
+URL and the effective raw endpoint returned by public `Lampa.Torserver.ip()`. It trims,
+lowercases and strips the HTTP(S) scheme and trailing slashes before hashing. The page's
+scheme does not affect the ID, and existing memberships keep their IDs. Equivalent URLs
+are deduplicated. Different normalized hosts, paths or ports retain separate database IDs.
+
+My Torrents unions this user's membership under both configured URLs, then intersects
+it with the active endpoint's live list. Only the active TorrServer is contacted. This
+works for LAN/tailnet aliases without detecting physical server identity; different
+servers show a hash only when it exists in the selected server's live list. Claims stay
+scoped to the endpoint used. Removal releases this user's membership under both IDs,
+without deleting the server torrent. Both idempotent DELETEs must succeed before removal
+reports success; partial failure notifies and refreshes the originating list, and a retry
+repeats both releases. A failed membership GET hides the whole union, without a guest or
+unfiltered fallback. Guests use the same union and a single local-map write for removal.
+
+Missing public API or both URLs empty leaves ownership unconfigured. Changes to either
+URL or the local selector refresh My Torrents. Pending responses capture the account,
+both URLs, selection and generations, including changes away and back or equivalent
+aliases. New lists and membership mutations invalidate older list results; newer operations
+on the same hash supersede earlier acknowledgements and delayed add claims. Independent
+hash claims remain independent. These guards discard stale callbacks; an already sent
+request may still commit on the server. The backend
 trims and lowercases a `hash`, then requires 40 or 64 hexadecimal characters.
 
 ### Torrent membership storage and logging
@@ -480,8 +544,8 @@ and torrent membership need the database. The critical database check probes bot
   have independent lists; people sharing a profile share its list. Clearing browser data
   loses memberships without deleting torrents. Login and logout never transfer hashes
   between account and guest storage. Guest removal changes only that map; account removal
-  changes only the authenticated user's database row. Neither sends `action: rem`.
-- Lists intersect membership with the live TorrServer list before rendering. An unresolved
+  releases only the authenticated user's rows under both configured IDs. Neither sends `action: rem`.
+- Lists intersect the membership union with the active TorrServer list before rendering. An unresolved
   session, failed account lookup or corrupt/unavailable guest storage shows an empty state
   and a notification. An initial session outage never guesses guest identity; a guest already
   confirmed in this page lifetime remains a guest during a later refresh outage. A `401`
@@ -489,19 +553,18 @@ and torrent membership need the database. The critical database check probes bot
   switch account operations into guest writes. Direct playback remains available while
   identity is unresolved or the API is down; membership recording is skipped if identity
   was unresolved at invocation or changed before TorrServer answered.
-- Preserve the original upstream two-link settings and per-path URL behavior after bundle
-  updates. Torrent operations, streams and speed tests use `Torserver.ip()` / `url()`: the
-  selected nonempty URL wins, otherwise the other nonempty URL is used; both empty means
-  unconfigured. Parser/search and generic authentication use the selected field directly.
-  With an empty selected field, search reports an unconfigured TorrServer and generic
-  requests receive no Basic auth even if torrent operations fall back. Status checks use
-  the changed field on either URL edit and the selected field on selector changes/settings
-  open, with no fallback; they send the shared credentials explicitly when auth is enabled.
-  Explicit URL schemes retain upstream `Utils.checkEmptyUrl` behavior. These are the original
-  upstream differences, not a common routing policy. The separate marked patch still removes
-  TrackTimecode (the toggle and all shared `/viewed` reads/writes); playback progress stays in
-  Lampa's local `file_view*`. Reapply that removal and its version/build stamp after upstream
-  updates without removing the two-link controls or changing their routing.
+- Preserve both URL controls and the local selector after bundle updates, plus the
+  marked automatic-fallback patch. The selected nonempty URL is preferred; failed
+  API, playback-setup, search and status requests try the other distinct URL once
+  before reporting an error. `Lampa.Torserver.ip()` / `url()`, streams and speed tests
+  follow the working route for the page. If that route fails, requests can switch
+  back. A successful change shows a link-number notification; a failed inactive link
+  does not produce an error notification when the other works. Both URLs share
+  credentials. Connection edits or reload reset the preference without rewriting
+  settings. Existing media streams are not automatically restarted or migrated.
+  Explicit URL schemes retain upstream `Utils.checkEmptyUrl` behavior. Also reapply
+  the separate TrackTimecode removal and version/build stamp: playback progress stays
+  in Lampa's local `file_view*` without shared `/viewed` reads or writes.
 - Account sync polls every 60 seconds while visible and on screen return, applying clean
   remote changes live, including during playback. A normal save costs a poll GET plus a PUT;
   each authenticates against Keycloak, even a 304 (no cache). Dirty fingerprints in
@@ -540,11 +603,13 @@ including documentation checks against the routes, migration SQL and scope inven
 input, `environment` (Development / Test / Production, default Production), written into the
 server `.env` as `LAMPA_ENVIRONMENT`; Development fails the `prepare` job, since it only works
 for a local `go run`. The public URL and Keycloak Authority come from the selected appsettings
-files. `LAMPA_KEYCLOAK_CLIENT_SECRET` remains a required secret. The release web port binds to
-`100.105.140.19:8092` on the `svtlv` Tailscale host. It builds `ghcr.io/<owner>/lampa-web` and
+files. `LAMPA_KEYCLOAK_CLIENT_SECRET` remains a required secret. The release publishes web as
+`8092:80` on all host interfaces, preserving LAN and Tailscale access. It builds `ghcr.io/<owner>/lampa-web` and
 `ghcr.io/<owner>/lampa-api` (branch, `<branch>-<sha>` and `latest` tags), swaps the `:dev`
-images for `:latest`, strips the `build:` blocks with `sed`, and deploys over Tailscale + SSH,
-waiting up to 3 minutes for `svtlvtv_lampa_api` to be healthy. It does not run the tests
+images for `:latest`, strips the `build:` blocks with `sed`, and deploys over Tailscale + SSH.
+After `docker-compose up -d --no-build` succeeds, it prunes old images without
+polling container health. Verify readiness manually using the migration runbook.
+Vendor pins remain unchanged by the release transformation. It does not run the tests
 (same as Svtlv); `tests.yaml` is the gate.
 
 There are no rollback inputs: roll back by reverting the commit and dispatching again.
