@@ -319,11 +319,15 @@ test('termination signals finish with a summary and leave no continuing collecti
   const f = fixture(t);
   const child = spawn('bash', [script, ...f.args, '--duration', '20'], {env: f.env, stdio: ['ignore', 'pipe', 'pipe']});
   t.after(() => child.kill('SIGKILL'));
-  let output = '', errors = '';
+  let output = '', errors = '', signalled = false;
   child.stderr.on('data', data => { errors += data; });
   child.stdout.on('data', data => {
     output += data;
-    if (output.includes('"type":"sample"')) child.kill('SIGTERM');
+    // Signal once; summary output must not trigger another signal during process exit.
+    if (!signalled && output.includes('"type":"sample"')) {
+      signalled = true;
+      child.kill('SIGTERM');
+    }
   });
   const timer = setTimeout(() => child.kill('SIGKILL'), 3000);
   const status = await new Promise(resolve => child.on('close', (code, signal) => resolve({code, signal})));
