@@ -9,7 +9,7 @@ const {test} = require('node:test');
 const source = fs.readFileSync(path.join(__dirname, '../svtlv/torrserver-ownership.js'), 'utf8');
 const html = fs.readFileSync(path.join(__dirname, '../index.html'), 'utf8');
 const bundle = fs.readFileSync(path.join(__dirname, '../app.min.js'), 'utf8');
-const ipSource = bundle.match(/  function ip\(\) \{[\s\S]*?\n  \}/)[0];
+const ipSource = bundle.slice(bundle.indexOf('  // svtlv: keep a working TorrServer'), bundle.indexOf('  /**', bundle.indexOf('  // svtlv: keep a working TorrServer'))) + bundle.match(/  function ip\(\) \{[\s\S]*?\n  \}/)[0];
 const key = 'svtlv_torrserver_guest_hashes';
 const X = 'a'.repeat(40), Y = 'b'.repeat(40), Z = 'c'.repeat(64);
 const id = url => crypto.createHash('sha256').update(url.trim().toLowerCase().replace(/^https?:\/\//, '').replace(/\/+$/, '')).digest('hex');
@@ -45,6 +45,7 @@ function page(options = {}) {
     },
     Utils: {hash() { throw new Error('short hashes must not be used'); }}
   };
+  Lampa.Storage.value = Lampa.Storage.get;
   Lampa.Torserver.ip = vm.runInNewContext(ipSource + '\nip;', {Storage: Lampa.Storage});
   for (const name of ['my', 'add', 'hash', 'remove', 'drop']) {
     Lampa.Torserver[name] = function (...args) {
@@ -1602,3 +1603,36 @@ test('configuring an endpoint discards callbacks from an older unconfigured list
   p.calls[0].fail('unconfigured');
   assert.equal(list.success.length + list.fail.length, 0);
 });
+
+for (const state of [guest, account()]) {
+  test('transport fallback preserves a pending membership-union list: ' + state.status, () => {
+    const p = page({state, settings: twoLinks});
+    seedBoth(p, [X], [Y]);
+    const result = p.list();
+    p.Lampa.Torserver.ip = () => twoLinks.torrserver_url_two;
+    for (const request of p.requests) request.success({hashes: [X, Y]});
+    p.calls[0].success([{hash: X}, {hash: Y}, {hash: Z}]);
+    assert.deepEqual(result.success, [[[ {hash: X}, {hash: Y} ]]]);
+    assert.equal(p.notices.length, 0);
+  });
+
+  for (const method of ['add', 'hash']) {
+    test('fallback claim belongs to the endpoint that answered: ' + state.status + '/' + method, () => {
+      const p = page({state, settings: {...twoLinks, torrserver_savedb: true}});
+      let saved = 0;
+      p.Lampa.Torserver[method]({}, () => saved++);
+      p.Lampa.Torserver.ip = () => twoLinks.torrserver_url_two;
+      p.calls[0].success({hash: X}, twoLinks.torrserver_url_two);
+      if (state.status === 'signed_in') {
+        assert.equal(p.requests.length, 1);
+        assert.equal(membershipServer(p.requests[0]), id(twoLinks.torrserver_url_two));
+        p.requests[0].success('');
+      } else {
+        assert.deepEqual(p.hashes(twoLinks.torrserver_url_two), [X]);
+        assert.deepEqual(p.hashes(twoLinks.torrserver_url), []);
+      }
+      assert.equal(saved, 1);
+      assert.equal(p.notices.length, 0);
+    });
+  }
+}

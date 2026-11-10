@@ -54,11 +54,11 @@ and require the handling in §10.4.
 
 TorrServer and Jackett remain unchanged and the browser calls them directly;
 the API does not proxy their traffic. Lampa's original two-link TorrServer
-settings and per-path runtime behavior are restored in `app.min.js`, with a
+settings and marked automatic link fallback live in `app.min.js`, with a
 matching `assembly.json` stamp. Both URLs and shared credentials sync while each
 client selects a link locally (§10.3–§10.4). Account, ownership and synchronization
 integrations stay in `svtlv/`. Upstream updates must retain both links and the
-separate marked shared-timecode removal (§10.2).
+marked link fallback and separate shared-timecode removal (§10.2).
 
 ## 3. Architecture
 
@@ -1057,19 +1057,26 @@ returned hashes, and replace removal with membership release.
 **Two URLs and the local selector.** The built-in settings expose
 `torrserver_url`, `torrserver_url_two` and `torrserver_use_link`, defaulting to
 `one`. Both URLs share one authentication toggle and username/password pair.
-The original upstream behavior differs by path:
+The selected nonempty URL is preferred until a request fails. A marked core
+patch tries the other distinct configured URL once, then keeps the working URL
+for this page. If it later fails, requests can switch back. No URL or selector
+is rewritten. Reloading or editing connection settings restores the preference.
 
-| Path | Original URL behavior |
+| Path | URL behavior |
 | --- | --- |
-| Torrent operations, streaming and speed tests | `Torserver.ip()` / `url()` use the selected URL when nonempty, otherwise the other nonempty URL; both empty means unconfigured. |
-| Parser/search | Read the selected field directly; an empty selected field reports an unconfigured TorrServer even if `ip()` could fall back. |
-| Generic request authentication | Match against the selected field directly; an empty selected field adds no Basic auth, including on requests using the fallback endpoint. |
-| Status checks | Editing either URL checks that field; changing the selector or opening settings checks the selected field, with no fallback. Nonempty checked fields receive shared credentials explicitly when auth is enabled. |
+| Torrent API and playback setup | Retry the failed operation once on the other URL. `Torserver.ip()` / `url()` and newly generated streams use the working URL. Both empty means unconfigured. |
+| Parser/search | Use the working URL, including when the preferred field is empty. Both search backends retry through the same routing helper. Preserve the search URL builder's trailing `/ts` compatibility. |
+| Authentication | Both configured URLs receive the shared credentials when enabled. Generic requests match complete host/path boundaries. |
+| Status checks | Check the edited/selected field, falling back to the effective URL when empty. A failed check tries the other URL before reporting an error. The failed field can retain its error indicator without an error notification. |
+| Notifications | Show a short link-1/link-2 switch notice only after a successful route change. Report connection/authentication errors only after both attempts fail. |
 
-Explicit request schemes retain upstream `Utils.checkEmptyUrl` behavior. These
-selected-empty differences are restored from upstream; do not replace them with
-a common resolver. Missing/invalid selection retains upstream behavior without
-new normalization or storage writes.
+Explicit HTTP(S) schemes are preserved. Empty or equivalent alternate URLs are
+not retried. Cancellation and connection edits fence both attempts, including
+away-and-back edits. Optional GStreamer discovery does not trigger failover.
+Existing media streams are not migrated or restarted automatically; fallback
+covers API/search requests and playback setup, with future stream URLs following
+the working route. Separately hosted TorrServers still need the requested torrent
+on the endpoint used for playback; the client does not replicate server state.
 
 **Two-link membership union.** The add-on takes both configured URLs and the
 effective raw endpoint from public `Lampa.Torserver.ip()`, trims and lowercases each,
@@ -1082,7 +1089,8 @@ Different normalized hosts, paths or ports retain separate database IDs even
 when URL 1 is a tailnet address and URL 2 a home LAN address for the same physical
 server. Equivalent normalized URLs are deduplicated. My Torrents unions this user's
 membership under both configured URLs and intersects it with the active endpoint's
-live list. It never contacts the inactive TorrServer or tries to detect physical
+live list. The core may retry the other URL after a failed request; membership
+lookup adds no live-server requests and does not try to detect physical
 server identity. A hash owned through either URL is visible through the other if
 that active server has it; absent hashes and other users' claims stay hidden.
 Adding under one address never claims ownership under the other. Existing rows
@@ -1538,9 +1546,9 @@ The design is complete when:
   guest removal changes only local storage, and login/logout transfers no hashes;
 - existing unowned torrents stay hidden until re-added individually; operator
   deletion hides retained memberships and re-add of the same hash restores them;
-- both TorrServer URL inputs and the local selector retain original upstream per-path
-  behavior, including selected-empty differences in parser/auth/status paths;
-  selection defaults to `one`, persists locally and alone sends no user-data PUT;
+- both TorrServer URL inputs remain, and the local selector defaults to `one`,
+  persists locally and alone sends no user-data PUT; requests retry the other link
+  once before reporting failure, retain a working route and can fall back in either direction;
 - My Torrents unions both configured membership IDs and intersects only the active
   `Torserver.ip()` live list; switching aliases of the same server retains owned hashes,
   different servers hide absent hashes, claims use the active ID and removal releases both;

@@ -553,19 +553,18 @@ and torrent membership need the database. The critical database check probes bot
   switch account operations into guest writes. Direct playback remains available while
   identity is unresolved or the API is down; membership recording is skipped if identity
   was unresolved at invocation or changed before TorrServer answered.
-- Preserve the original upstream two-link settings and per-path URL behavior after bundle
-  updates. Torrent operations, streams and speed tests use `Torserver.ip()` / `url()`: the
-  selected nonempty URL wins, otherwise the other nonempty URL is used; both empty means
-  unconfigured. Parser/search and generic authentication use the selected field directly.
-  With an empty selected field, search reports an unconfigured TorrServer and generic
-  requests receive no Basic auth even if torrent operations fall back. Status checks use
-  the changed field on either URL edit and the selected field on selector changes/settings
-  open, with no fallback; they send the shared credentials explicitly when auth is enabled.
-  Explicit URL schemes retain upstream `Utils.checkEmptyUrl` behavior. These are the original
-  upstream differences, not a common routing policy. The separate marked patch still removes
-  TrackTimecode (the toggle and all shared `/viewed` reads/writes); playback progress stays in
-  Lampa's local `file_view*`. Reapply that removal and its version/build stamp after upstream
-  updates without removing the two-link controls or changing their routing.
+- Preserve both URL controls and the local selector after bundle updates, plus the
+  marked automatic-fallback patch. The selected nonempty URL is preferred; failed
+  API, playback-setup, search and status requests try the other distinct URL once
+  before reporting an error. `Lampa.Torserver.ip()` / `url()`, streams and speed tests
+  follow the working route for the page. If that route fails, requests can switch
+  back. A successful change shows a link-number notification; a failed inactive link
+  does not produce an error notification when the other works. Both URLs share
+  credentials. Connection edits or reload reset the preference without rewriting
+  settings. Existing media streams are not automatically restarted or migrated.
+  Explicit URL schemes retain upstream `Utils.checkEmptyUrl` behavior. Also reapply
+  the separate TrackTimecode removal and version/build stamp: playback progress stays
+  in Lampa's local `file_view*` without shared `/viewed` reads or writes.
 - Account sync polls every 60 seconds while visible and on screen return, applying clean
   remote changes live, including during playback. A normal save costs a poll GET plus a PUT;
   each authenticates against Keycloak, even a 304 (no cache). Dirty fingerprints in

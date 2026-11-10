@@ -64,7 +64,7 @@ function page(shared = server()) {
     Date: {now: () => now}, setInterval: (fn, ms) => schedule(fn, ms, true), clearInterval: id => timers.delete(id),
     setTimeout: (fn, ms) => schedule(fn, ms, false), clearTimeout: id => timers.delete(id),
     $: node, navigator: {userAgent: 'browser'},
-    Storage: {get: key => settings[key] || '', field: key => settings[key]},
+    Storage: {get: key => settings[key] || '', field: key => settings[key], value: key => settings[key] || ''},
     Platform: {is: name => settings.platform === name, install() {}},
     Android: {openTorrent: value => played.push(value), playHash: value => played.push(value)},
     Favorite: {add: (...args) => history.push(args)},

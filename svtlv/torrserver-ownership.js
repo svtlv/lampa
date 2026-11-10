@@ -136,14 +136,18 @@
     var configured = [lampa.Storage.get('torrserver_url'), lampa.Storage.get('torrserver_url_two'),
       lampa.Storage.field('torrserver_use_link')];
     var signature = JSON.stringify(configured);
-    if (changed || server != effectiveServer || signature != connection) {
-      effectiveServer = server;
+    var configuredServers = configured.slice(0, 2).map(serverId);
+    // A transport fallback between configured URLs keeps the same membership
+    // union. Configuration/account edits still fence every outstanding callback.
+    var fallback = configuredServers.indexOf(server) >= 0 && configuredServers.indexOf(effectiveServer) >= 0;
+    if (changed || (server != effectiveServer && !fallback) || signature != connection) {
       connection = signature;
       serverGeneration++;
       operations = {};
     }
+    effectiveServer = server;
     // Keep the public resolver authoritative for actual torrent operations.
-    // The other configured addresses supply membership only, never server calls.
+    // Membership lookup adds no live requests; core routing may retry the other URL.
     var servers = server ? [server] : [];
     if (server) configured.slice(0, 2).forEach(function (url) {
       var id = serverId(url);
@@ -162,7 +166,7 @@
   function current(ctx) {
     var now = capture();
     return now.status == ctx.status && now.generation === ctx.generation &&
-      now.user_id === ctx.user_id && now.server == ctx.server && now.server_generation === ctx.server_generation &&
+      now.user_id === ctx.user_id && (now.server == ctx.server || now.servers.indexOf(ctx.server) >= 0) && now.server_generation === ctx.server_generation &&
       (ctx.list_generation === undefined || ctx.list_generation === listGeneration) &&
       (!ctx.hash || operations[ctx.hash] === ctx.operation_generation);
   }
@@ -375,12 +379,16 @@
           if (name == 'hash' || current(ctx)) call(fail, args, receiver);
         }
         try {
-          return original[name].call(api.Torserver, object, function (json) {
+          return original[name].call(api.Torserver, object, function (json, server) {
             var args = arguments;
             var receiver = this;
+            // The successful request may have used the other configured link.
+            // Record its actual endpoint after checking the original scope fence.
+            var valid = current(ctx);
+            if (valid) ctx.server = typeof server == 'string' && ctx.servers.indexOf(serverId(server)) >= 0 ? serverId(server) : endpoint();
             // Playback is direct and must survive session checks/outages. Only
             // membership requires a resolved identity that is still current.
-            if (!known(ctx) || !current(ctx)) {
+            if (!known(ctx) || !valid) {
               if (name == 'hash') call(success, args, receiver);
               return;
             }

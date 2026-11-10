@@ -344,6 +344,7 @@ export default {
     torrent_error_complite: 'Завершить',
     torrent_error_connect: 'Ошибка подключения',
     torrent_error_check_no_auth: 'Сервер ответил на запрос, но не удалось пройти авторизацию',
+    torrserver_fallback: 'TorrServer: переключено на ссылку {link}',
 
     torrent_install_need: 'Необходим TorrServer',
     torrent_install_text: 'TorrServer – приложение, которое позволяет просматривать контент из торрент-файлов в онлайн режиме.<br><br>Более детальную информацию по установке вы найдете в Telegram-группах, указанных ниже.',
