@@ -411,7 +411,10 @@ test('too many targets fail without inspection', t => {
 test('document links, shell examples, JSON examples and annotation schema remain valid', t => {
   const doc = fs.readFileSync(path.join(root, 'docs/parallel-playback-validation.md'), 'utf8');
   for (const match of doc.matchAll(/\]\(([^)]+)\)/g)) {
-    if (!match[1].includes('://')) assert.ok(fs.existsSync(path.resolve(root, 'docs', match[1])), match[1]);
+    const target = match[1].split('#')[0];
+    if (target && !/^[a-z][a-z0-9+.-]*:/i.test(target)) {
+      assert.ok(fs.existsSync(path.resolve(root, 'docs', decodeURIComponent(target))), match[1]);
+    }
   }
   for (const match of doc.matchAll(/```sh\n([\s\S]*?)```/g)) {
     const result = spawnSync('bash', ['-n'], {input: match[1], encoding: 'utf8'});

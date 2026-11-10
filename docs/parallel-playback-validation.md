@@ -1,11 +1,15 @@
-# Parallel playback measurement and acceptance
+# Optional parallel playback measurement reference
 
-The repository provides a read-only collector for later playback and search
-trials. No production collection, deployment, playback acceptance or capacity
-measurement has been performed. Fixture results demonstrate the collector, not
-server capacity. The candidates and procedure below are ready for later owner-run
-trials; their performance and supported capacity remain unverified. Initial
-container adoption preserves the complete live settings without applying them.
+This is an optional reference for an explicitly chosen investigation or playback
+trial, not an outstanding acceptance task or a scheduled work item. Monitoring
+and incident records are maintained outside the application backlog; create a
+focused backlog item when evidence establishes an actionable defect or an
+improvement is deliberately scheduled. The migration is complete.
+
+Fixture tests demonstrate the read-only collector, not server capacity. The
+tuning candidates and workload gates below are unverified examples, not deployed
+defaults or a requirement to run production stress tests. Removing the former
+follow-up does not mean that playback capacity or incident causation was proved.
 
 ## Run the collector later
 
@@ -446,13 +450,13 @@ numeric thresholds and nonsecret settings values in a separate record. A
 Promote A or B only after the applicable matrix and gates pass with adequate
 headroom; otherwise retain/revert the safe settings and record the failure.
 Document supported capacity only for the measured content, clients, routes and
-neighbor conditions. Initial cutover, later normal redeployment, actual incident
-reproduction and initiating-process attribution remain separate operational
-results. Unmeasured capacity or unresolved incidents must stay visible as
-[incident/capacity follow-up](backlog/parallel-playback-resource-peaks-and-configuration.md);
-automated checks cannot establish a live fix. Repository completion and the
-owner-operated handover are recorded in the
-[archived plan](plans/completed/20261108-parallel-playback-and-container-migration.md).
+neighbor conditions. Deployment checks, incident reproduction and initiating-process
+attribution are separate evidence. Keep trial results and incident records in the
+private administration workspace. Create a new focused backlog item only for
+supported actionable findings or deliberately scheduled improvements; an unrun
+experiment is not automatically backlog work. Automated checks cannot establish
+a live fix. The [archived plan](plans/completed/20261108-parallel-playback-and-container-migration.md)
+retains the historical implementation record.
 
 ## Collector read-only boundaries and references
 
@@ -469,6 +473,5 @@ Linux semantics follow the primary [cgroup v2 interface reference](https://docs.
 [PSI reference](https://docs.kernel.org/accounting/psi.html), and
 [proc filesystem reference](https://docs.kernel.org/filesystems/proc.html).
 Docker filtering uses the documented [inspect format option](https://docs.docker.com/reference/cli/docker/inspect/).
-Service definitions and takeover context remain in
-[the inventory](container-migration-inventory.md) and
-[the migration runbook](container-migration-runbook.md).
+Current service definitions are in [Compose](../devops/docker-compose.yaml);
+maintained storage, backup and shutdown guidance is in [README Operations](../README.md#operations).

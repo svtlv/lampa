@@ -1,38 +1,19 @@
 # Implement parallel-playback fixes and TorrServer/Jackett Compose configuration
 
-> **Superseding PR6 relocation addendum — November 10, 2026.** This completed
-> plan and its task results below are historical. The owner's later relocation
-> request supersedes all same-bind/no-copy and old-path retention instructions
-> below, including the post-implementation handover; it does not rewrite or reopen
-> completed playback implementation or claim its historical checks cover relocation.
->
-> Destination binds are `/home/deploy/svtlvtv/torrserver/config:/opt/ts/config`,
-> `/home/deploy/svtlvtv/torrserver/cache:/opt/ts/torrents` and
-> `/home/deploy/svtlvtv/jackett/config:/config`. Original sources remain
-> `/var/lib/torrserver/{config,cache}` and `/opt/svtlvtv/jackett/config` until cutover.
-> Only live pre-copy was approved and is reported executed with
-> `rsync -aHAX --numeric-ids`, preserving numeric UID/GID/modes. Running source
-> services mean it is not a consistent backup or verified cutover. No stop,
-> deployment, deletion or copy-verification result is claimed by this addendum.
->
-> The current [manual runbook](../../container-migration-runbook.md) supersedes
-> the old handover: separately authorize shutdown; stop/prevent old writers;
-> final-sync offline without automatic `--delete`; require zero unintended
-> checksum/metadata differences and a complete independent consistent pre-upgrade
-> backup with recovery verification before deployment or any new destination writes.
-> Only after successful deployment/acceptance and separate approval may source-only
-> cleanup occur; keep destination paths. Rollback via unchanged original directories
-> requires a safe compatible pre-cutover recovery point and reconciliation of new
-> writes. Keep the existing no-deploy-time-guards convention. This is a
-> configuration-copy change, not playback/tuning implementation or live acceptance.
+> **Historical implementation record.** Repository work was completed November 9,
+> 2026. Deployment, configuration/data verification and old-path cleanup completed
+> November 10, 2026; operational evidence is retained in the administration workspace.
+> The migration inventory, migration runbook and open-ended incident/capacity backlog
+> were subsequently retired at the owner's request; their original content remains
+> in Git history. The dated decisions and handover instructions below are historical,
+> not current operating instructions or a scheduled acceptance backlog.
+> Use [README Operations](../../../README.md#operations) for maintained guidance.
+> The [playback measurement guide](../../parallel-playback-validation.md) is optional
+> reference. No playback-capacity result or incident-cause resolution follows from
+> retiring the backlog.
 
-Repository implementation completed and archived November 9, 2026. Tasks 1–12
-passed applicable local checks. Earlier task-validation notes describe their
-historical checkpoints; their then-pending later tasks are now complete.
-Production cutover, settings changes, live playback and measured capacity remain
-unperformed. Use the [manual runbook](../../container-migration-runbook.md),
-[validation procedure](../../parallel-playback-validation.md) and the final
-post-implementation handover below for later owner-operated actions.
+Tasks 1–12 passed applicable repository checks. Earlier validation notes preserve
+historical checkpoints; their then-pending later implementation tasks are complete.
 
 ## Objective and completion contract
 
@@ -861,7 +842,7 @@ production documents or additional owner actions.
   findings, `0ac7703` for the warning arrangement). Resolved implementation
   backlog files were deleted; account classification landed in `dadd0cd`,
   cross-link membership in `6972aea`, and local cancellation in `9ec81a8`.
-  [Remaining incident/capacity follow-up](../../backlog/parallel-playback-resource-peaks-and-configuration.md)
+  Remaining incident/capacity follow-up (historical document; retained in Git history)
   tracks live evidence only. Implementation scope is restated above.
 - [MatriX.143 signal handling](https://github.com/YouROK/TorrServer/blob/5c812ec1abe4c8e0acee29d820f78205a8f0e7b7/server/cmd/preconfig_pos.go),
   [shutdown API](https://github.com/YouROK/TorrServer/blob/5c812ec1abe4c8e0acee29d820f78205a8f0e7b7/server/web/api/shutdown.go),
@@ -932,7 +913,7 @@ emulation for the production pins on ARM.
 ### Live measurement and tuning
 
 Follow the delivered [measurement and acceptance procedure](../../parallel-playback-validation.md)
-and [runbook tuning handover](../../container-migration-runbook.md#tuning-and-playback-handover-after-cutover).
+and runbook tuning handover (historical document; retained in Git history).
 They contain the complete target-source contract, settings procedure, workload
 matrix, gates and result record. The collector's 4200-second example covers a
 60-minute sustain plus 10-minute cleanup; measure setup/reference/repeated cases

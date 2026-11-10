@@ -15,25 +15,12 @@ The `svtlv/torrserver-ownership.js` add-on uses the membership routes while cont
 call TorrServer directly for adding, listing and playback. The API never contacts TorrServer
 and receives neither its URL nor its credentials through the membership routes.
 
-## Playback and container handover
+## Playback and containers
 
-The stack now includes pinned TorrServer and Jackett services. The
-[service inventory](../docs/container-migration-inventory.md) records the preserved
-configuration, source/destination bind mapping, ports and release image tags. The
-[manual cutover runbook](../docs/container-migration-runbook.md) covers old-writer
-shutdown, consistent backup, relocation, verification and upgrade-aware
-rollback. PR6 relocates host binds to `/home/deploy/svtlvtv/torrserver/config`,
-`/home/deploy/svtlvtv/torrserver/cache` and `/home/deploy/svtlvtv/jackett/config` (unchanged
-container paths `/opt/ts/config`, `/opt/ts/torrents` and `/config`). The November 10,
-2026 live pre-copy used `rsync -aHAX --numeric-ids`; running sources mean it is
-not a consistent backup or verified cutover. Keep original sources
-`/var/lib/torrserver/{config,cache}` and `/opt/svtlvtv/jackett/config` until cutover.
-Before new writes, stop old writers, final-sync offline, require zero unintended
-checksum/metadata differences and verify a complete independent pre-upgrade backup.
-Only after successful deployment/acceptance may separately approved source-only
-cleanup occur; keep destination paths. Rollback depends on compatible original
-data and reconciliation of any new writes. No deploy-time guards are added.
-Every later deployment redeploys both services and may interrupt playback/search.
+TorrServer and Jackett are managed by the same Compose stack as the API. Each
+deployment can interrupt playback and search. The root [README Operations](../README.md#operations)
+is the maintained reference for persistent data, backups and shutdown/settings
+caveats; the Compose file is authoritative for images, paths, ports and runtime settings.
 
 My Torrents unions membership for both configured URLs, filtered by the active
 server's live list. Removal clears only this user's membership under both IDs;
@@ -52,12 +39,11 @@ recoverable failures; repeated notifications remain suppressed per failure strea
 no URL, identity, token, body, setting name/value or exception text and sends
 nothing to another device. Refreshing the page discards it.
 
-The [playback validation procedure](../docs/parallel-playback-validation.md)
-describes the bounded collector, staged unverified tuning, full-settings
-readback/rollback and later three-viewer 1080p/single-viewer 4K acceptance.
-Implementation and automated tests do not establish migration success, the
-reported warning's production cause or measured capacity. Remaining live work
-is tracked in the [incident/capacity follow-up](../docs/backlog/parallel-playback-resource-peaks-and-configuration.md).
+The [playback measurement guide](../docs/parallel-playback-validation.md) is optional
+reference for explicitly chosen investigations or trials, not an outstanding
+acceptance task. Monitoring and incident evidence live outside the application
+backlog; create a focused item when evidence establishes an actionable defect or
+the owner schedules an improvement. Health and automated tests do not prove playback capacity.
 
 ## Layout
 
