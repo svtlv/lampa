@@ -1,17 +1,17 @@
 // Run with: node --test tests/operations-docs.test.cjs
-// Keep current operating guidance usable after retiring one-off migration records.
+// Keep current operating guidance usable after retiring one-off records and guides.
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const path = require('node:path');
 const {test} = require('node:test');
 const root = path.join(__dirname, '..');
 const maintained = ['README.md', 'backend/README.md', 'AGENTS.md', 'CLAUDE.md',
-  'docs/parallel-playback-validation.md',
+  'docs/design/settings-sync-backend-design.md',
   'docs/plans/completed/20261108-parallel-playback-and-container-migration.md'];
 
-test('completed migration documents and the retired incident backlog are absent', () => {
+test('completed migration documents, validation guide and retired backlog are absent', () => {
   for (const file of ['docs/container-migration-inventory.md',
-    'docs/container-migration-runbook.md',
+    'docs/container-migration-runbook.md', 'docs/parallel-playback-validation.md',
     'docs/backlog/parallel-playback-resource-peaks-and-configuration.md']) {
     assert.equal(fs.existsSync(path.join(root, file)), false, file);
   }
@@ -29,7 +29,7 @@ test('maintained operating guidance has no broken local document links', () => {
   }
 });
 
-test('README owns storage operations and playback testing is optional', () => {
+test('README owns storage operations and a short collector usage example', () => {
   const readme = fs.readFileSync(path.join(root, 'README.md'), 'utf8');
   assert.match(readme, /^### Operations$/m);
   for (const file of ['torrserver/config', 'torrserver/cache', 'jackett/config']) {
@@ -37,7 +37,6 @@ test('README owns storage operations and playback testing is optional', () => {
   }
   assert.ok(readme.includes('TS_DONTKILL=1'));
   assert.ok(readme.includes('full settings object'));
-  const validation = fs.readFileSync(path.join(root, 'docs/parallel-playback-validation.md'), 'utf8');
-  assert.match(validation, /optional reference/i);
-  assert.match(validation, /not (?:a |an )?(?:scheduled|outstanding)/i);
+  assert.ok(readme.includes('bash devops/measure-playback.sh'));
+  assert.ok(readme.includes('--duration') && readme.includes('--interval'));
 });

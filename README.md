@@ -39,7 +39,7 @@ regular web server for use in a compatible browser.
 | `.github/workflows/tests.yaml` | Backend lint, tests and race, frontend Node checks and ES5 parsing, and a Compose config check on PRs and pushes to `svtlvtv` |
 | `.github/workflows/deploy-docker.yaml` | Manual Svtlv deployment workflow |
 | `backend/` | `lampa-api`, a fork-only Go service that stores user data in PostgreSQL; see [`backend/README.md`](backend/README.md) |
-| `docs/` | Designs, completed implementation plans and optional playback measurement reference |
+| `docs/` | Designs and completed implementation plans |
 
 Despite its name, `app.min.js` is readable compiled output. The web application
 has no package manager or build command. Fork-only add-ons and the two-link
@@ -375,9 +375,16 @@ and functionality afterward. An HTTP success alone does not prove a settings sav
 
 Monitoring and incident history belong in the administration workspace, not an
 open-ended application backlog. Create focused items for evidence-backed defects
-or deliberately scheduled improvements. The [playback measurement guide](docs/parallel-playback-validation.md)
-and `devops/measure-playback.sh` remain optional investigation tools, not scheduled
-acceptance work or proof of playback capacity.
+or deliberately scheduled improvements. For a bounded read-only resource sample on
+the Linux Docker host (Bash and Python 3.8+):
+
+```sh
+umask 077
+bash devops/measure-playback.sh --duration 60 --interval 5 > "$HOME/playback-metrics.jsonl"
+```
+
+Keep output private and outside Git. The collector does not start playback, change
+settings or establish supported capacity.
 
 ### Roll back
 

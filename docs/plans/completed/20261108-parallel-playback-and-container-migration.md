@@ -8,9 +8,8 @@
 > in Git history. The dated decisions and handover instructions below are historical,
 > not current operating instructions or a scheduled acceptance backlog.
 > Use [README Operations](../../../README.md#operations) for maintained guidance.
-> The [playback measurement guide](../../parallel-playback-validation.md) is optional
-> reference. No playback-capacity result or incident-cause resolution follows from
-> retiring the backlog.
+> The collector's basic usage remains in README. No playback-capacity result or
+> incident-cause resolution follows from retiring these documents.
 
 Tasks 1–12 passed applicable repository checks. Earlier validation notes preserve
 historical checkpoints; their then-pending later implementation tasks are complete.
@@ -912,7 +911,7 @@ emulation for the production pins on ARM.
 
 ### Live measurement and tuning
 
-Follow the delivered [measurement and acceptance procedure](../../parallel-playback-validation.md)
+Follow the delivered measurement and acceptance procedure (historical document; retained in Git history)
 and runbook tuning handover (historical document; retained in Git history).
 They contain the complete target-source contract, settings procedure, workload
 matrix, gates and result record. The collector's 4200-second example covers a

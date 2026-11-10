@@ -39,11 +39,10 @@ recoverable failures; repeated notifications remain suppressed per failure strea
 no URL, identity, token, body, setting name/value or exception text and sends
 nothing to another device. Refreshing the page discards it.
 
-The [playback measurement guide](../docs/parallel-playback-validation.md) is optional
-reference for explicitly chosen investigations or trials, not an outstanding
-acceptance task. Monitoring and incident evidence live outside the application
-backlog; create a focused item when evidence establishes an actionable defect or
-the owner schedules an improvement. Health and automated tests do not prove playback capacity.
+Monitoring and incident evidence live outside the application backlog. Create a
+focused item when evidence establishes an actionable defect or the owner schedules
+an improvement. Basic collector usage is in [README Operations](../README.md#operations);
+health and automated tests do not prove playback capacity.
 
 ## Layout
 
