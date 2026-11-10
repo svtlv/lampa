@@ -1,7 +1,7 @@
 # local runs build the images from this file: copy .env.example to .env, then
 # docker compose -p lampa up -d --build lampa-web lampa-api
 # starting vendor services also uses fixed names/ports and existing absolute binds;
-# follow docs/container-migration-runbook.md before their initial adoption.
+# see README.md Operations for persistent-data and shutdown precautions.
 #
 # the deploy workflow swaps every "<service>:dev" image for its ghcr.io latest tag and deletes each
 # build block with sed, from its build key line through its dockerfile line, so the layout of

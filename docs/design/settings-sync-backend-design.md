@@ -1248,9 +1248,9 @@ everything and leaves CUB's icon visible when `location.protocol` is not
   records: `phase`, `method`, `status`, `category`, `elapsed_ms`, `duration_ms`.
   Phases include boot/load/apply/background-read/save-preflight/save/storage.
   No URLs, identities, headers, bodies, setting names/values or exception text
-  are retained or transmitted. Use the [live validation procedure](../parallel-playback-validation.md)
-  to correlate the signed-in client's warning with request/backend/host evidence;
-  similar toasts do not establish cross-device notification delivery.
+  are retained or transmitted. For an incident, correlate the signed-in client's
+  warning with request, backend and host evidence; similar toasts do not establish
+  cross-device notification delivery.
 - `401`/`409`: stop saves and polling, cancel timers and ask Account to recheck
   the session. Confirmed guest/expiry clears synchronized data (§16).
 - `412`: poll and retry once; repeated conflict stays dirty for a later save.
