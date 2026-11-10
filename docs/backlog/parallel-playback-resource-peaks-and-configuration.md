@@ -60,9 +60,16 @@ Their full-settings apply/readback/rollback procedure, workload matrix and stop
 gates are authoritative. Keep raw logs, rollback snapshots, credentials, media
 identifiers and private host details outside Git.
 
-1. Complete the manual old-writer shutdown/consistent backup/exact-bind cutover
-   and verify saved data, credentials, consumers and later normal redeployment.
-   Retain `/opt/svtlvtv/jackett/config`; do not overlap old/new writers.
+1. Complete the manual relocation cutover to `/home/deploy/torrserver/{config,cache}`
+   and `/home/deploy/jackett/config`: the November 10 live pre-copy with
+   `rsync -aHAX --numeric-ids` is not a consistent backup or verified cutover.
+   Stop old writers, final-sync offline, require zero unintended checksum/metadata
+   differences and verify a complete independent pre-upgrade backup before new
+   writes; verify saved data, credentials, consumers and later redeployment.
+   Keep original sources until cutover; source-only cleanup needs successful
+   deployment/acceptance and separate approval, and must retain destinations.
+   Rollback requires compatible original data and reconciliation of new writes;
+   do not overlap old/new writers.
 2. During an owner-chosen bounded window, establish a safe idle/single-viewer
    reference and numeric headroom/pressure/latency thresholds. Do not replay the
    unsafe three-distinct-torrent 2 GiB profile merely to obtain a baseline.

@@ -19,10 +19,20 @@ and receives neither its URL nor its credentials through the membership routes.
 
 The stack now includes pinned TorrServer and Jackett services. The
 [service inventory](../docs/container-migration-inventory.md) records the preserved
-configuration, three existing binds, ports and release image tags. The
+configuration, source/destination bind mapping, ports and release image tags. The
 [manual cutover runbook](../docs/container-migration-runbook.md) covers old-writer
-shutdown, consistent backup, exact-bind adoption, verification and upgrade-aware
-rollback. Keep the active `/opt/svtlvtv/jackett/config` directory during cleanup.
+shutdown, consistent backup, relocation, verification and upgrade-aware
+rollback. PR6 relocates host binds to `/home/deploy/torrserver/config`,
+`/home/deploy/torrserver/cache` and `/home/deploy/jackett/config` (unchanged
+container paths `/opt/ts/config`, `/opt/ts/torrents` and `/config`). The November 10,
+2026 live pre-copy used `rsync -aHAX --numeric-ids`; running sources mean it is
+not a consistent backup or verified cutover. Keep original sources
+`/var/lib/torrserver/{config,cache}` and `/opt/svtlvtv/jackett/config` until cutover.
+Before new writes, stop old writers, final-sync offline, require zero unintended
+checksum/metadata differences and verify a complete independent pre-upgrade backup.
+Only after successful deployment/acceptance may separately approved source-only
+cleanup occur; keep destination paths. Rollback depends on compatible original
+data and reconciliation of any new writes. No deploy-time guards are added.
 Every later deployment redeploys both services and may interrupt playback/search.
 
 My Torrents unions membership for both configured URLs, filtered by the active
@@ -236,9 +246,9 @@ docker compose -p lampa up -d --build lampa-web lampa-api
 ```
 
 This local command starts web/API and their DB dependency only. A full-stack
-`up` also starts the fixed-name vendor services using their absolute existing
-data binds; use the runbook for adoption, or isolated synthetic paths/names/ports
-for a rehearsal.
+`up` also starts the fixed-name vendor services using their absolute destination
+data binds under `/home/deploy/torrserver/` and `/home/deploy/jackett/`; use the
+runbook for adoption, or isolated synthetic paths/names/ports for a rehearsal.
 
 The API is not published: reach it through the web container's proxy, for example
 `curl http://localhost:8092/api/v1/session` → `{"authenticated":false}`. Health stays

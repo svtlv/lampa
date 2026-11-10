@@ -1,5 +1,31 @@
 # Implement parallel-playback fixes and TorrServer/Jackett Compose configuration
 
+> **Superseding PR6 relocation addendum — November 10, 2026.** This completed
+> plan and its task results below are historical. The owner's later relocation
+> request supersedes all same-bind/no-copy and old-path retention instructions
+> below, including the post-implementation handover; it does not rewrite or reopen
+> completed playback implementation or claim its historical checks cover relocation.
+>
+> Destination binds are `/home/deploy/torrserver/config:/opt/ts/config`,
+> `/home/deploy/torrserver/cache:/opt/ts/torrents` and
+> `/home/deploy/jackett/config:/config`. Original sources remain
+> `/var/lib/torrserver/{config,cache}` and `/opt/svtlvtv/jackett/config` until cutover.
+> Only live pre-copy was approved and is reported executed with
+> `rsync -aHAX --numeric-ids`, preserving numeric UID/GID/modes. Running source
+> services mean it is not a consistent backup or verified cutover. No stop,
+> deployment, deletion or copy-verification result is claimed by this addendum.
+>
+> The current [manual runbook](../../container-migration-runbook.md) supersedes
+> the old handover: separately authorize shutdown; stop/prevent old writers;
+> final-sync offline without automatic `--delete`; require zero unintended
+> checksum/metadata differences and a complete independent consistent pre-upgrade
+> backup with recovery verification before deployment or any new destination writes.
+> Only after successful deployment/acceptance and separate approval may source-only
+> cleanup occur; keep destination paths. Rollback via unchanged original directories
+> requires a safe compatible pre-cutover recovery point and reconciliation of new
+> writes. Keep the existing no-deploy-time-guards convention. This is a
+> configuration-copy change, not playback/tuning implementation or live acceptance.
+
 Repository implementation completed and archived November 9, 2026. Tasks 1–12
 passed applicable local checks. Earlier task-validation notes describe their
 historical checkpoints; their then-pending later tasks are now complete.

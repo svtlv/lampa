@@ -5,6 +5,16 @@ release window. Writing and validating it does not stop containers, deploy, back
 up data, change settings or verify production. None of those actions is required
 to complete the implementation plan.
 
+**PR6 superseding update — November 10, 2026:** the owner requested host-bind
+relocation, not playback implementation changes. Only live pre-copy was approved
+and is reported executed using `rsync -aHAX --numeric-ids`, preserving numeric
+UID/GID and modes. Source services remain running: this is not a consistent
+backup, final-sync verification or cutover. No stop, deployment or deletion is
+authorized by that approval. The following cutover steps require a separately
+approved maintenance window; all commands are manual examples, not executed here.
+Keep the existing no-deploy-time-guards convention: these are operator gates,
+not new workflow guards or automated migration/cleanup hooks.
+
 Use the [service and data inventory](container-migration-inventory.md) for image
 pins, runtime settings and the dated production snapshot. The delivered
 [Compose definition](../devops/docker-compose.yaml) and manual
@@ -19,7 +29,9 @@ File preservation alone does not establish upgrade or downgrade compatibility.
 ```text
 Preserve rollback references and private comparison data
                          |
-Stop old writers -> finalize consistent pre-upgrade backup
+Stop old writers -> offline final sync -> checksum/metadata gate
+                         |
+Complete independent consistent pre-upgrade backup; verify recovery
                          |
 Free old names/ports -> deploy destination stack
                          |
@@ -30,8 +42,16 @@ Retire old deployment entry point and obsolete sources
 Keep all three active bind directories
 ```
 
-**Note:** Only the deployment definitions change ownership. The new containers
-open the existing bind directories after the old writers have stopped.
+**Source and destination mapping:** source binds remain authoritative until cutover.
+Container-internal paths do not change. Copy complete trees, never selected files.
+
+| Old source host path | Destination host path | Container path |
+| --- | --- | --- |
+| `/var/lib/torrserver/config` | `/home/deploy/torrserver/config` | `/opt/ts/config` |
+| `/var/lib/torrserver/cache` | `/home/deploy/torrserver/cache` | `/opt/ts/torrents` |
+| `/opt/svtlvtv/jackett/config` | `/home/deploy/jackett/config` | `/config` |
+
+Do not start destination writers during staging, final comparison or backup.
 
 ### 1. Prepare the release and recovery material
 
@@ -42,7 +62,8 @@ Keep the old Compose definition at
 image references available in a private recovery location. Keep the prior Lampa
 release reference too. Do not rely on locally cached images surviving pruning.
 
-Prepare backup storage outside the three live binds and any obsolete source tree.
+Prepare independent backup storage outside all source/destination binds and any
+obsolete source tree. The staged destination copy is not that backup.
 Record a private before-upgrade comparison of the full TorrServer settings and
 saved-torrent records, Jackett server/indexer configuration and indexer inventory,
 API/admin credentials, cookies and DataProtection state. Include both configured
@@ -65,10 +86,48 @@ These are later operational checks, not missing implementation inputs.
 The old Compose project is `torrserver`. Stop its TorrServer and Jackett writers
 before the destination project `svtlvtv` starts either service. Follow the signal
 caveat below for TorrServer. Confirm both are stopped and cannot restart, then
-take a consistent offline backup of the complete three bind directories. Preserve
-numeric ownership, modes and any other recovery-relevant metadata; verify the
-backup can be read/restored in isolation before allowing the new binaries to write.
-This backup is recovery material, not a relocation or import into new live paths.
+perform the final offline sync of all three complete source trees to the mapped
+destinations. Keep old and new writers stopped throughout sync, comparison and
+backup; prevent automation from starting either version. Resolve symlinks and
+confirm exact source/destination scope and filesystem support before copying.
+Preserve UID/GID, modes, hardlinks, ACLs and extended attributes. Do not add
+`--delete` automatically: live pre-copy can leave destination-only stale files,
+which need private review and a separately approved scoped resolution.
+
+Manual final-sync examples (only after separately approved shutdown and confirmation
+that writers cannot restart; these commands were not run for this documentation):
+
+```bash
+sudo rsync -aHAX --numeric-ids /var/lib/torrserver/config/ /home/deploy/torrserver/config/
+sudo rsync -aHAX --numeric-ids /var/lib/torrserver/cache/ /home/deploy/torrserver/cache/
+sudo rsync -aHAX --numeric-ids /opt/svtlvtv/jackett/config/ /home/deploy/jackett/config/
+```
+
+Gate deployment on successful offline checksum and metadata comparisons of every
+pair with **zero unintended differences**. Check both directions so destination-only
+files are detected without deletion. For example, repeat this read-only comparison
+for each pair in the mapping (no file contents or credentials are printed):
+
+```bash
+sudo rsync -aHAX --numeric-ids --checksum --dry-run --itemize-changes /var/lib/torrserver/config/ /home/deploy/torrserver/config/
+sudo rsync -aHAX --numeric-ids --checksum --dry-run --itemize-changes /home/deploy/torrserver/config/ /var/lib/torrserver/config/
+```
+
+Review itemized paths privately because filenames may identify private media.
+Compare numeric UID/GID, modes, timestamps, symlink targets, hardlink topology,
+ACLs and xattrs as well as checksums and complete path inventories; check bind-root
+metadata too. A successful rsync exit alone is not equality. Record only sanitized
+status/counts, never settings, credentials or raw private listings. Errors, missing
+metadata support, unexpected extras or mismatches block deployment until resolved
+and comparison repeated; do not silently ignore them.
+
+While writers remain stopped, take a **complete independent consistent pre-upgrade
+backup** of all three source binds, including databases, settings and credentials,
+preserving numeric ownership/modes and recovery-relevant metadata. Include needed
+writable-layer state separately. Verify backup integrity and isolated restoration.
+Do not allow any new destination/application writes or deployment before both the
+comparison gate and backup/recovery gate pass. Keep original directories unchanged
+as recovery candidates; the destination sync is not the independent backup.
 
 Retain the stopped containers until needed writable-layer files are secured.
 Remove the old container objects as needed to free the fixed names `torrserver`
@@ -88,8 +147,9 @@ or start a second independent stack as a migration shortcut.
 
 The workflow installs the release definition at
 `/home/deploy/svtlvtv/docker-compose.yaml`, retains the pinned vendor images and
-runs full-stack pull/down/up. It reuses the existing paths directly; no data
-copying, import, credential regeneration or settings replacement is needed.
+runs full-stack pull/down/up. It uses the three relocated destination paths only
+after the offline sync/comparison and independent backup gates pass. No credential
+regeneration or settings replacement is needed.
 Retain `svtlv_monitoring_external`, service aliases and Lampa web `8092:80` on the
 existing host interfaces. The Apache proxy remains API-only.
 
@@ -108,7 +168,7 @@ response as proof that configuration, credentials or consumer access survived.
 | Check | Required comparison |
 | --- | --- |
 | Image and runtime | Selected release tags, effective application versions, TorrServer command/path flags/root UID:GID, Jackett `--NoUpdates` beneath root s6 with application UID:GID `1000:1000` |
-| Storage | Exactly the three existing bind pairs below; ownership and readable saved configuration/databases; no replacement empty directory or generated defaults |
+| Storage | Exactly the three destination bind pairs in the mapping above; preserved numeric ownership/modes and readable saved configuration/databases; no replacement empty directory or generated defaults |
 | TorrServer data | Full settings and saved-torrent records retained; no 512 MiB/4% candidate applied during migration; both client URLs and shared credentials preserved |
 | Jackett data | Complete indexer/server settings, API/admin credentials, cookies and DataProtection state retained; compare actual records, not only the snapshot's counts |
 | Internal search | DNS alias `jackett`, port 9117 and `jackett:9117/api/v2.0/indexers/all/results/torznab/` remain usable from TorrServer with the retained stored key |
@@ -133,7 +193,10 @@ out of command lines, shared logs and shell history.
 
 ### 5. Retire obsolete deployment sources after successful verification
 
-Retire the old redeployment entry point so it cannot recreate conflicting writers.
+This is a later conditional step, not part of the approved live pre-copy. Only
+after successful deployment and saved-data/credential/consumer acceptance, with
+rollback retention agreed and separate cleanup approval, retire the old
+redeployment entry point so it cannot recreate conflicting writers.
 The old Compose definition and confirmed obsolete deployment-only files under
 `/opt` can then be removed from their former live location. Retain their recovery
 copies for the chosen rollback window. Review individual paths and symlink targets
@@ -144,9 +207,10 @@ is part of this handover.
 | --- | --- |
 | `/opt/svtlvtv/torrserver/docker-compose.yml` | Obsolete live deployment definition after verification; retain private recovery copy |
 | Other old source/automation paths | Remove/retire only after identifying them and confirming they contain no live data; snapshot did not identify them |
-| `/var/lib/torrserver/config` → `/opt/ts/config` | Keep complete active configuration/database bind |
-| `/var/lib/torrserver/cache` → `/opt/ts/torrents` | Keep active torrent/cache bind, even if empty |
-| `/opt/svtlvtv/jackett/config` → `/config` | Keep complete active Jackett bind, including credentials; it is not obsolete source |
+| `/var/lib/torrserver/config`, `/var/lib/torrserver/cache`, `/opt/svtlvtv/jackett/config` | Original source data only; retain for agreed rollback window, then eligible for individually reviewed source-only cleanup after acceptance and separate approval |
+| `/home/deploy/torrserver/config` → `/opt/ts/config` | Keep complete active destination configuration/database bind |
+| `/home/deploy/torrserver/cache` → `/opt/ts/torrents` | Keep active destination torrent/cache bind, even if empty |
+| `/home/deploy/jackett/config` → `/config` | Keep complete active destination Jackett bind, including credentials |
 | `/home/deploy/svtlvtv/docker-compose.yaml` | Keep active destination definition and its private environment file |
 
 ## TorrServer signal handling and graceful shutdown
@@ -181,6 +245,13 @@ On failed verification, keep the obsolete sources and pause further changes.
 Stop the new writers and prevent automatic restarts before restoring anything.
 Preserve a separate consistent copy of post-upgrade state and record any new
 saved records or credential/configuration changes that need reconciliation.
+
+The old definition points only at the original `/var/lib/torrserver/{config,cache}`
+and `/opt/svtlvtv/jackett/config` directories, not the relocated destinations.
+Restart against those unchanged originals only if they remain a safe, compatible
+pre-cutover recovery point and all new writes have been reconciled or their loss
+explicitly accepted by the owner. Path retention alone does not make rollback
+safe. Never reverse-sync upgraded destination data blindly over originals.
 
 Choose data known compatible with the intended old versions, or restore the full
 pre-upgrade backup while both versions are stopped. Do not point the old binaries
@@ -278,8 +349,11 @@ Repository work is complete in the
 [archived plan](plans/completed/20261108-parallel-playback-and-container-migration.md).
 The [API/add-on guide](../backend/README.md#playback-and-container-handover)
 describes final account error/diagnostic, membership and cancellation behavior.
-Repository checks passed; no production cutover, settings write, live trial or
-capacity acceptance was performed. Keep the manual actions in this runbook
+The original repository checks passed. The November 10 live pre-copy completed,
+and a post-copy checksum/metadata dry run reported no changes; final offline
+verification remains required because the sources are still running. No production
+cutover, settings write, live trial or capacity acceptance was performed.
+Keep the manual actions in this runbook
 separate from those implementation results.
 
 The [incident/capacity follow-up](backlog/parallel-playback-resource-peaks-and-configuration.md)

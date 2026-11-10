@@ -107,11 +107,13 @@ Use `-p lampa` so a local stack does not share Svtlv's `devops` project.
 Use the same project option on later Compose commands. Project names do not
 isolate this file's fixed container names, published ports or absolute bind paths.
 A full-stack `up` also starts TorrServer and Jackett against
-`/var/lib/torrserver/config`, `/var/lib/torrserver/cache` and
-`/opt/svtlvtv/jackett/config`. For initial adoption, follow the
+`/home/deploy/torrserver/config`, `/home/deploy/torrserver/cache` and
+`/home/deploy/jackett/config` (container paths remain `/opt/ts/config`,
+`/opt/ts/torrents` and `/config`). For initial adoption, follow the
 [manual cutover runbook](docs/container-migration-runbook.md) before starting them;
-stop the old writers and preserve consistent backups first. Use isolated names,
-ports and synthetic bind paths for a rehearsal.
+stop old writers, perform the offline final sync, pass checksum/metadata comparison
+and secure a complete independent pre-upgrade backup before any new writes.
+Use isolated names, ports and synthetic bind paths for a rehearsal.
 
 The API runs in the `Test` environment by default; see
 "Configuration" and "Local run" in [`backend/README.md`](backend/README.md),
@@ -179,8 +181,16 @@ Before the first full-stack deployment, complete the old-project shutdown and
 backup steps in the [manual cutover runbook](docs/container-migration-runbook.md).
 The workflow does not take over old containers or migrate their data. Every
 deployment redeploys TorrServer and Jackett too and can interrupt playback and
-search. Keep all three existing bind directories, including Jackett's active
-configuration under `/opt/svtlvtv/jackett/config`.
+search. The owner-authorized live pre-copy on November 10, 2026 used
+`rsync -aHAX --numeric-ids` to preserve UID/GID/modes; it is not a consistent
+backup while sources run. A checksum/metadata dry run reported no changes after
+copying; final offline verification and cutover remain unperformed. Sources
+remain `/var/lib/torrserver/{config,cache}` and `/opt/svtlvtv/jackett/config` until
+cutover. Keep all destination binds under `/home/deploy/torrserver/` and
+`/home/deploy/jackett/`; source-only cleanup is conditional on successful deployment
+and acceptance, not currently authorized. Rollback requires compatible original
+data and reconciliation of post-cutover writes; follow the runbook. No deploy-time
+guards or automated migration/cleanup are introduced.
 
 The workflow has a single input:
 

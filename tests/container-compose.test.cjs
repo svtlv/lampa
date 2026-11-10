@@ -77,8 +77,8 @@ test('TorrServer retains its image, runtime, data, public TCP port and both netw
   assert.equal(server.volumes.length, 2);
   assert.deepEqual(server.volumes.map(({type, source, target, read_only}) =>
     ({type, source, target, read_only: !!read_only})), [
-    {type: 'bind', source: '/var/lib/torrserver/config', target: '/opt/ts/config', read_only: false},
-    {type: 'bind', source: '/var/lib/torrserver/cache', target: '/opt/ts/torrents', read_only: false}
+    {type: 'bind', source: '/home/deploy/torrserver/config', target: '/opt/ts/config', read_only: false},
+    {type: 'bind', source: '/home/deploy/torrserver/cache', target: '/opt/ts/torrents', read_only: false}
   ]);
   assert.equal(server.ports.length, 1);
   assert.equal(server.ports[0].published, '8090');
@@ -120,7 +120,7 @@ test('Jackett preserves its pinned image, s6 identity, no-update environment and
   }
   assert.deepEqual(server.volumes.map(({type, source, target, read_only}) =>
     ({type, source, target, read_only: !!read_only})), [
-    {type: 'bind', source: '/opt/svtlvtv/jackett/config', target: '/config', read_only: false}
+    {type: 'bind', source: '/home/deploy/jackett/config', target: '/config', read_only: false}
   ]);
   assert.deepEqual(Object.keys(model.services).sort(),
     ['jackett', 'lampa-api', 'lampa-db', 'lampa-web', 'torrserver']);

@@ -74,12 +74,18 @@ Keep both configured TorrServer client URLs and shared credentials. The active
 link/player choice stays device-local. Keep Lampa web's `8092:80` publication and
 its API-only Apache proxy; add no media/search proxy, FlareSolverr or VPN service.
 The initial old-project takeover is manual. Follow the [runbook's cutover order](container-migration-runbook.md#cutover-order):
-stop old writers, secure the consistent backup, free names/ports, deploy, verify,
+stop old writers, final-sync offline, pass checksum/metadata comparisons, secure
+the independent consistent pre-upgrade backup, free names/ports, deploy, verify,
 then retire obsolete sources. Normal later deployments retain the full-stack
 pull/down/up lifecycle and may interrupt playback and searches, even when the
 vendor service configuration is unchanged.
 
-## Persistent data: exactly three existing binds
+## Persistent data: dated source observation and destination binds
+
+### Recorded source binds — November 8, 2026
+
+The table below preserves the dated old observation, not the PR6 destination.
+Sources remain in use until the separately approved cutover.
 
 | Host source | Container destination | Recorded owner/mode | Retained contents |
 | --- | --- | --- | --- |
@@ -87,23 +93,42 @@ vendor service configuration is unchanged.
 | `/var/lib/torrserver/cache` | `/opt/ts/torrents` | `0:0`, directory `0755` | Existing torrent/cache path; empty at snapshot with RAM cache enabled |
 | `/opt/svtlvtv/jackett/config` | `/config` | `1000:1000`, directory `0755` | Complete server/indexer configuration, API/admin credentials, cookies and DataProtection state |
 
-There were no named or anonymous volumes for these two services. Reuse these
-three binds directly. Do not copy, relocate, regenerate or selectively reconstruct
-their contents from this document. Jackett had 24 indexer JSON files and 20 `.bak`
-files; those `.bak` files are not a verified complete backup.
+There were no named or anonymous volumes for these two services. Jackett had
+24 indexer JSON files and 20 `.bak` files; those `.bak` files are not a verified
+complete backup. Logs at `/opt/ts/log` are in TorrServer's writable container layer,
+outside the recorded binds. These remain dated observations, not new verification.
 
-`/opt/svtlvtv/jackett/config` is active persistent data, even though its path is
-under `/opt`. It must survive any later removal of obsolete deployment sources.
-Keep both `/var/lib/torrserver` binds too. Logs at `/opt/ts/log` are in TorrServer's
-writable container layer, outside the three recorded binds.
+### Destination contract — owner-requested PR6 relocation, November 10, 2026
 
-Before allowing upgraded binaries to write, take a consistent offline backup of
-the complete binds, retaining ownership/modes and configuration/database/credential
-state. Account separately for recovery-relevant writable-layer files before old
-containers are removed. Verify recovery material in isolation. Backups are not a
-live-data relocation. The [cleanup path table](container-migration-runbook.md#5-retire-obsolete-deployment-sources-after-successful-verification)
-distinguishes removable deployment definitions from retained live data; it does
-not authorize deleting the Jackett parent tree under `/opt`.
+| Destination host path | Container path | Source to preserve/copy completely |
+| --- | --- | --- |
+| `/home/deploy/torrserver/config` | `/opt/ts/config` | `/var/lib/torrserver/config` |
+| `/home/deploy/torrserver/cache` | `/opt/ts/torrents` | `/var/lib/torrserver/cache` |
+| `/home/deploy/jackett/config` | `/config` | `/opt/svtlvtv/jackett/config` |
+
+The owner approved only live pre-copy, reported executed with
+`rsync -aHAX --numeric-ids` to preserve UID/GID/modes and other metadata. Source
+services are still running. The post-copy checksum/metadata dry run reported no
+changes, but this is not a consistent backup or completed cutover. No
+stop/deploy/deletion follows from that approval. Preserve
+complete contents; do not regenerate credentials or reconstruct selected files.
+
+Before deployment or any new destination writes, a separately approved window
+must stop old writers and prevent restarts, final-sync offline, establish zero
+unintended checksum/metadata differences, and secure a complete independent
+consistent pre-upgrade backup with isolated recovery verification. Never add
+`--delete` automatically; review destination-only extras without deleting them.
+Account separately for recovery-relevant writable-layer files. The destination
+copy is not the independent backup. Follow the [manual runbook](container-migration-runbook.md),
+without adding deploy-time guards or automated migration behavior.
+
+Keep original source directories until cutover and through the agreed rollback
+window. Only after successful deployment/acceptance and separate approval may
+source-only cleanup be considered; **keep all three destination paths**. Original
+data is a rollback candidate only if still safe/compatible and post-cutover new
+writes have been reconciled, not an unconditional restart target. The
+[cleanup path table](container-migration-runbook.md#5-retire-obsolete-deployment-sources-after-successful-verification)
+does not authorize recursive deletion of the Jackett parent tree or destinations.
 
 ## TorrServer runtime contract
 

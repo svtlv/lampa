@@ -104,9 +104,9 @@ services:
     ports:
       - "8090:8090/tcp"
     volumes:
-      # reuse the complete existing data; never reconstruct settings during adoption
-      - /var/lib/torrserver/config:/opt/ts/config
-      - /var/lib/torrserver/cache:/opt/ts/torrents
+      # complete pre-copied data; finalize the offline sync before first adoption
+      - /home/deploy/torrserver/config:/opt/ts/config
+      - /home/deploy/torrserver/cache:/opt/ts/torrents
     healthcheck:
       # version-only endpoint: no torrent access, reader activity or cache lifetime change
       test: ["CMD", "wget", "-q", "-T", "3", "-O", "/dev/null", "http://127.0.0.1:8090/echo"]
@@ -138,8 +138,8 @@ services:
     ports:
       - "9117:9117/tcp"
     volumes:
-      # active persistent data, including credentials; retain this path under /opt
-      - /opt/svtlvtv/jackett/config:/config
+      # complete pre-copied config, including credentials; finalize the offline sync
+      - /home/deploy/jackett/config:/config
     healthcheck:
       # anonymous HTTP readiness only; no indexer search or Torznab request
       test: ["CMD", "curl", "-fsS", "--max-time", "3", "--output", "/dev/null", "http://127.0.0.1:9117/health"]
