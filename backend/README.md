@@ -19,7 +19,7 @@ and receives neither its URL nor its credentials through the membership routes.
 
 The stack now includes pinned TorrServer and Jackett services. The
 [service inventory](../docs/container-migration-inventory.md) records the preserved
-configuration, three existing binds, ports and image digests. The
+configuration, three existing binds, ports and release image tags. The
 [manual cutover runbook](../docs/container-migration-runbook.md) covers old-writer
 shutdown, consistent backup, exact-bind adoption, verification and upgrade-aware
 rollback. Keep the active `/opt/svtlvtv/jackett/config` directory during cleanup.
@@ -245,7 +245,8 @@ The API is not published: reach it through the web container's proxy, for exampl
 container-internal: `docker exec svtlvtv_lampa_api curl -s http://localhost:8081/health`.
 
 For Development, start only the DB and run the binary on the host; the base settings already
-point at `localhost:5434` (published on loopback only):
+point at `localhost:5434`. The database is also published on the host's other
+interfaces at port 5434 so Hermes can query it:
 
 ```sh
 cd devops && docker compose -p lampa up -d lampa-db
@@ -596,11 +597,10 @@ for a local `go run`. The public URL and Keycloak Authority come from the select
 files. `LAMPA_KEYCLOAK_CLIENT_SECRET` remains a required secret. The release publishes web as
 `8092:80` on all host interfaces, preserving LAN and Tailscale access. It builds `ghcr.io/<owner>/lampa-web` and
 `ghcr.io/<owner>/lampa-api` (branch, `<branch>-<sha>` and `latest` tags), swaps the `:dev`
-images for `:latest`, strips the `build:` blocks with `sed`, and deploys over Tailscale + SSH,
-using a shared 3-minute readiness deadline for running, healthy API, TorrServer
-and Jackett containers. Vendor pins remain unchanged by the release transformation.
-Readiness failure reports bounded state and API logs, excluding vendor logs and
-private configuration. It does not run the tests
+images for `:latest`, strips the `build:` blocks with `sed`, and deploys over Tailscale + SSH.
+After `docker-compose up -d --no-build` succeeds, it prunes old images without
+polling container health. Verify readiness manually using the migration runbook.
+Vendor pins remain unchanged by the release transformation. It does not run the tests
 (same as Svtlv); `tests.yaml` is the gate.
 
 There are no rollback inputs: roll back by reverting the commit and dispatching again.

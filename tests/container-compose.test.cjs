@@ -11,8 +11,8 @@ const root = path.join(__dirname, '..');
 const compose = fs.readFileSync(path.join(root, 'devops/docker-compose.yaml'), 'utf8');
 const workflow = fs.readFileSync(path.join(root, '.github/workflows/deploy-docker.yaml'), 'utf8');
 const example = fs.readFileSync(path.join(root, 'devops/.env.example'), 'utf8');
-const pin = 'ghcr.io/yourok/torrserver:MatriX.150@sha256:2d02152b804946848f032dcca94fa0f096c8840cff3d37e1ba5400c30f70e16b';
-const jackettPin = 'lscr.io/linuxserver/jackett:v0.24.3030-ls30@sha256:3af37ff2ca5f14da5529b9e2018e384735daf1bf08b99350e1211be863eeae20';
+const pin = 'ghcr.io/yourok/torrserver:MatriX.150';
+const jackettPin = 'lscr.io/linuxserver/jackett:v0.24.3030-ls30';
 // Ignore real account/deploy inputs and implicit Compose overrides in the test environment.
 const env = Object.fromEntries(Object.entries(process.env).filter(([key]) =>
   !/^(LAMPA_|COMPOSE_|DOCKER_DEFAULT_PLATFORM$)/.test(key)));
@@ -49,10 +49,10 @@ function workflowScript(name) {
   return script.replace(/^          /gm, '');
 }
 
-test('PostgreSQL is reachable only through the host loopback port', t => {
+test('PostgreSQL publishes port 5434 on host interfaces for Hermes', t => {
   const database = config(fixture(t)).services['lampa-db'];
   assert.equal(database.ports.length, 1);
-  assert.equal(database.ports[0].host_ip, '127.0.0.1');
+  assert.ok(!database.ports[0].host_ip || database.ports[0].host_ip === '0.0.0.0');
   assert.equal(database.ports[0].published, '5434');
   assert.equal(database.ports[0].target, 5432);
   assert.equal(database.ports[0].protocol, 'tcp');

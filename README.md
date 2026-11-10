@@ -88,7 +88,7 @@ values replace the `{domain}` and `{PREFIX}` placeholders in `msx/start.json`.
 `devops/docker-compose.yaml` defines five services: `lampa-web` (the Apache
 image), `lampa-db` (PostgreSQL), `lampa-api` (the Go persistence service from
 `backend/`), `torrserver` and `jackett`. The vendor images are pinned by release
-tag and digest; see the [service inventory](docs/container-migration-inventory.md).
+tag; see the [service inventory](docs/container-migration-inventory.md).
 Compose builds `lampa-web:dev` and `lampa-api:dev` locally and reads its
 values from `devops/.env`, which is gitignored; `devops/.env.example` is the
 template. Compose interpolates every service even when only one is started, so the
@@ -206,13 +206,12 @@ The workflow performs the following operations:
 5. Copies the Compose file and a generated `.env` to `DEPLOY_DIR`.
 6. Logs the server in to GHCR, checks the Compose configuration, pulls the images,
    stops the running containers and starts all five services with `docker-compose`.
-7. Uses one shared 3-minute wait for `svtlvtv_lampa_api`, `torrserver` and `jackett`
-   to be running and healthy together. Failure reports selected container state
-   and bounded API logs, excluding vendor logs and private configuration. A
-   successful run then prunes old images.
+7. Prunes old images after `docker-compose up -d --no-build` succeeds.
 
-The workflow does not wait for the `lampa-web` healthcheck. It does not run the
-backend tests either; the **Tests** workflow (`tests.yaml`) gates PRs and pushes to
+The workflow does not poll container health. Compose still waits for a healthy
+database before starting the API. Verify service readiness manually using the
+[migration runbook](docs/container-migration-runbook.md#4-verify-before-retiring-old-sources).
+The workflow does not run the backend tests either; the **Tests** workflow (`tests.yaml`) gates PRs and pushes to
 `svtlvtv`, so merge only green changes before deploying.
 
 The Compose layout the `sed` strip depends on is described in the header comment of
@@ -369,8 +368,7 @@ Stop writers and use verified pre-upgrade backups when compatibility requires it
 - **Container is unhealthy** — inspect
   `docker-compose logs --tail 100 lampa-web` and confirm that Apache can serve
   `/` inside the container.
-- **Stack startup failed** — API, TorrServer and Jackett must all be running and
-  healthy within the shared wait. Inspect the reported state and the runbook's
+- **Stack startup failed** — inspect the Compose error and the runbook's
   service-specific checks. For API failures, inspect
   `docker-compose logs --tail 100 lampa-api lampa-db`; the usual causes are a
   wrong `LAMPA_DB_PASSWORD` for an already initialized database volume or a

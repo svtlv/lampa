@@ -43,8 +43,8 @@ services:
       # applies only on first init of lampa_db_data; rotating it later needs ALTER ROLE first
       POSTGRES_PASSWORD: ${LAMPA_DB_PASSWORD:?Set LAMPA_DB_PASSWORD for the lampa database role}
     ports:
-      # loopback only: reachable by a Development "go run" on the host, never from outside
-      - "127.0.0.1:5434:5432"
+      # published on host interfaces for Hermes queries and a local Development "go run"
+      - "5434:5432"
     volumes:
       # postgres 18+ images keep PGDATA in a versioned subdirectory of /var/lib/postgresql
       - lampa_db_data:/var/lib/postgresql
@@ -88,7 +88,7 @@ services:
       - monitoring_external
 
   torrserver:
-    image: ghcr.io/yourok/torrserver:MatriX.150@sha256:2d02152b804946848f032dcca94fa0f096c8840cff3d37e1ba5400c30f70e16b
+    image: ghcr.io/yourok/torrserver:MatriX.150
     container_name: torrserver
     user: "0:0"
     restart: unless-stopped
@@ -123,7 +123,7 @@ services:
           - torrserver
 
   jackett:
-    image: lscr.io/linuxserver/jackett:v0.24.3030-ls30@sha256:3af37ff2ca5f14da5529b9e2018e384735daf1bf08b99350e1211be863eeae20
+    image: lscr.io/linuxserver/jackett:v0.24.3030-ls30
     container_name: jackett
     restart: unless-stopped
     # retain the root s6 supervisor; it runs Jackett as PUID:PGID.

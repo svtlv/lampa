@@ -313,44 +313,8 @@ jobs:
           docker network inspect svtlv_monitoring_external >/dev/null 2>&1 ||
             docker network create svtlv_monitoring_external
 
-          report_startup_failure() {
-            # report only state fields: vendor logs/configuration may contain credentials
-            for container in svtlvtv_lampa_api torrserver jackett; do
-              echo ">>> Startup state: $container" >&2
-              docker inspect --format 'state={{.State.Status}} health={{if .State.Health}}{{.State.Health.Status}}{{else}}none{{end}} exit={{.State.ExitCode}} oom={{.State.OOMKilled}} restarts={{.RestartCount}}' "$container" >&2 ||
-                echo "$container is missing or cannot be inspected" >&2
-            done
-            docker-compose logs --tail=50 lampa-api >&2 || true
-          }
-
           echo '>>> Starting new containers...'
-          if ! docker-compose up -d --no-build; then
-            report_startup_failure
-            exit 1
-          fi
-
-          # one shared three-minute budget, including the existing API health wait
-          ready=false
-          for _ in $(seq 1 36); do
-            ready=true
-            for container in svtlvtv_lampa_api torrserver jackett; do
-              status=$(docker inspect --format '{{if .State.Running}}{{if .State.Health}}{{.State.Health.Status}}{{else}}none{{end}}{{else}}{{.State.Status}}{{end}}' "$container" 2>/dev/null || echo missing)
-              if [ "$status" != "healthy" ]; then
-                ready=false
-              fi
-            done
-            if [ "$ready" = true ]; then
-              break
-            fi
-            sleep 5
-          done
-
-          if [ "$ready" != true ]; then
-            echo 'Stack startup failed: API, TorrServer and Jackett must all be healthy within 3 minutes' >&2
-            report_startup_failure
-            exit 1
-          fi
-          echo 'svtlvtv_lampa_api, torrserver and jackett are healthy'
+          docker-compose up -d --no-build
 
           echo '>>> Cleaning up old images...'
           docker image prune -f

@@ -23,10 +23,10 @@ pre-upgrade backup, as described in the [manual handover runbook](container-migr
 
 ### Selected stable container targets
 
-| Service | Selected release | Published (UTC) | Release-tagged image-index pin |
+| Service | Selected release | Published (UTC) | Release image tag |
 | --- | --- | --- | --- |
-| TorrServer | MatriX.150 | 2026-11-06 17:56:32 | `ghcr.io/yourok/torrserver:MatriX.150@sha256:2d02152b804946848f032dcca94fa0f096c8840cff3d37e1ba5400c30f70e16b` |
-| Jackett | Application v0.24.3030, LinuxServer v0.24.3030-ls30 | 2026-11-08 06:45:20 (image) | `lscr.io/linuxserver/jackett:v0.24.3030-ls30@sha256:3af37ff2ca5f14da5529b9e2018e384735daf1bf08b99350e1211be863eeae20` |
+| TorrServer | MatriX.150 | 2026-11-06 17:56:32 | `ghcr.io/yourok/torrserver:MatriX.150` |
+| Jackett | Application v0.24.3030, LinuxServer v0.24.3030-ls30 | 2026-11-08 06:45:20 (image) | `lscr.io/linuxserver/jackett:v0.24.3030-ls30` |
 
 The official latest-release APIs returned `draft=false` and `prerelease=false`
 for [TorrServer MatriX.150](https://github.com/YouROK/TorrServer/releases/tag/MatriX.150)
@@ -37,12 +37,10 @@ November 9 at 05:49:18 UTC. It does not have a newer published LinuxServer relea
 at this check. Select the published stable container above; do not replace its
 application in place or invent a corresponding image tag.
 
-Both selected tags returned OCI image indexes. Each registry's
-`Docker-Content-Digest` matched the SHA-256 calculated from the raw index response
-and the pin above. Both include `linux/amd64` and `linux/arm64`; TorrServer also
+Both selected tags returned OCI image indexes. Both include `linux/amd64` and `linux/arm64`; TorrServer also
 includes `linux/arm/v7`. Attestation entries with an `unknown` platform are not
 runtime platforms. LinuxServer's moving `latest` tag resolved to the same index as
-v0.24.3030-ls30 at this check, but deployment must use the release/digest pin.
+v0.24.3030-ls30 at this check, but deployment uses the selected release tags.
 
 Public verification endpoints (read-only; no production credentials):
 
@@ -215,10 +213,9 @@ the preserved `unless-stopped` policy handles process exit.
 Healthy means the HTTP application is responding. It does not establish working
 indexer credentials, upstream availability, saved-data preservation or TorrServer
 Torznab connectivity. Those checks remain in the [later manual verification](container-migration-runbook.md#4-verify-before-retiring-old-sources).
-The release workflow now waits up to three minutes for API, TorrServer and
-Jackett to be running and healthy together. Failed startup/readiness reports
-selected container state fields and bounded API logs without vendor logs or
-private configuration; it does not automatically roll back.
+The release workflow starts the stack without polling container health; readiness
+verification remains manual. Compose retains the API's healthy-database dependency.
+Deployment failures do not automatically roll back.
 
 ## Known unknowns and later operational context
 

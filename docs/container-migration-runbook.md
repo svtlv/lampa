@@ -93,12 +93,12 @@ copying, import, credential regeneration or settings replacement is needed.
 Retain `svtlv_monitoring_external`, service aliases and Lampa web `8092:80` on the
 existing host interfaces. The Apache proxy remains API-only.
 
-The workflow requires API, TorrServer and Jackett to be running and healthy
-together within a shared three-minute wait. Startup failure reports selected
-state/health/exit/OOM/restart fields and bounded API logs. Vendor configuration,
-health-probe output and vendor logs are excluded from that report. A failed wait
-does not automatically roll back; inspect privately and use the recovery procedure
-below if necessary. A failed image pull occurs before normal stack shutdown.
+After `docker-compose up -d --no-build` succeeds, the workflow prunes old images
+without polling container health. Compose still waits for the database healthcheck
+before starting the API. Verify service readiness manually in the next step.
+Deployment failures do not automatically roll back; inspect privately and use the
+recovery procedure below if necessary. A failed image pull occurs before normal
+stack shutdown.
 
 ### 4. Verify before retiring old sources
 
@@ -107,7 +107,7 @@ response as proof that configuration, credentials or consumer access survived.
 
 | Check | Required comparison |
 | --- | --- |
-| Image and runtime | Selected digest pins, effective application versions, TorrServer command/path flags/root UID:GID, Jackett `--NoUpdates` beneath root s6 with application UID:GID `1000:1000` |
+| Image and runtime | Selected release tags, effective application versions, TorrServer command/path flags/root UID:GID, Jackett `--NoUpdates` beneath root s6 with application UID:GID `1000:1000` |
 | Storage | Exactly the three existing bind pairs below; ownership and readable saved configuration/databases; no replacement empty directory or generated defaults |
 | TorrServer data | Full settings and saved-torrent records retained; no 512 MiB/4% candidate applied during migration; both client URLs and shared credentials preserved |
 | Jackett data | Complete indexer/server settings, API/admin credentials, cookies and DataProtection state retained; compare actual records, not only the snapshot's counts |
