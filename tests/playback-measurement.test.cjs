@@ -407,28 +407,3 @@ test('too many targets fail without inspection', t => {
   assert.equal(result.status, 2);
   assert.ok(!fs.existsSync(path.join(f.dir, 'calls')));
 });
-
-test('document links, shell examples, JSON examples and annotation schema remain valid', t => {
-  const doc = fs.readFileSync(path.join(root, 'docs/parallel-playback-validation.md'), 'utf8');
-  for (const match of doc.matchAll(/\]\(([^)]+)\)/g)) {
-    if (!match[1].includes('://')) assert.ok(fs.existsSync(path.resolve(root, 'docs', match[1])), match[1]);
-  }
-  for (const match of doc.matchAll(/```sh\n([\s\S]*?)```/g)) {
-    const result = spawnSync('bash', ['-n'], {input: match[1], encoding: 'utf8'});
-    assert.equal(result.status, 0, result.stderr);
-  }
-  const examples = [...doc.matchAll(/```jsonl\n([\s\S]*?)```/g)]
-    .map(match => match[1].trim().split('\n').map(line => JSON.parse(line)));
-  assert.equal(examples.length, 2);
-  const f = fixture(t);
-  f.put('documentation-events.jsonl', examples[0].map(row => JSON.stringify(row)).join('\n') + '\n');
-  const values = runPython(f, `
-a = m.Annotations(base / 'documentation-events.jsonl').read(120, 4200)
-print(json.dumps(a))`);
-  assert.equal(values[0].length, 3);
-  assert.deepEqual(values[1], []);
-  for (const row of examples[1]) {
-    assert.equal(row.schema_version, 1);
-    assert.ok(['metadata', 'sample', 'summary'].includes(row.type));
-  }
-});

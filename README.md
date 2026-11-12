@@ -39,7 +39,7 @@ regular web server for use in a compatible browser.
 | `.github/workflows/tests.yaml` | Backend lint, tests and race, frontend Node checks and ES5 parsing, and a Compose config check on PRs and pushes to `svtlvtv` |
 | `.github/workflows/deploy-docker.yaml` | Manual Svtlv deployment workflow |
 | `backend/` | `lampa-api`, a fork-only Go service that stores user data in PostgreSQL; see [`backend/README.md`](backend/README.md) |
-| `docs/` | Designs, implementation plans, container handover and playback validation |
+| `docs/` | Designs and completed implementation plans |
 
 Despite its name, `app.min.js` is readable compiled output. The web application
 has no package manager or build command. Fork-only add-ons and the two-link
@@ -88,7 +88,7 @@ values replace the `{domain}` and `{PREFIX}` placeholders in `msx/start.json`.
 `devops/docker-compose.yaml` defines five services: `lampa-web` (the Apache
 image), `lampa-db` (PostgreSQL), `lampa-api` (the Go persistence service from
 `backend/`), `torrserver` and `jackett`. The vendor images are pinned by release
-tag; see the [service inventory](docs/container-migration-inventory.md).
+tag in the Compose file, which is the configuration source of truth.
 Compose builds `lampa-web:dev` and `lampa-api:dev` locally and reads its
 values from `devops/.env`, which is gitignored; `devops/.env.example` is the
 template. Compose interpolates every service even when only one is started, so the
@@ -109,18 +109,16 @@ isolate this file's fixed container names, published ports or absolute bind path
 A full-stack `up` also starts TorrServer and Jackett against
 `/home/deploy/svtlvtv/torrserver/config`, `/home/deploy/svtlvtv/torrserver/cache` and
 `/home/deploy/svtlvtv/jackett/config` (container paths remain `/opt/ts/config`,
-`/opt/ts/torrents` and `/config`). For initial adoption, follow the
-[manual cutover runbook](docs/container-migration-runbook.md) before starting them;
-stop old writers, perform the offline final sync, pass checksum/metadata comparison
-and secure a complete independent pre-upgrade backup before any new writes.
-Use isolated names, ports and synthetic bind paths for a rehearsal.
+`/opt/ts/torrents` and `/config`). Do not start a local full stack against production
+data. Use isolated names, ports and synthetic bind paths for a rehearsal; see
+[Operations](#operations) for persistent-data and shutdown precautions.
 
 The API runs in the `Test` environment by default; see
 "Configuration" and "Local run" in [`backend/README.md`](backend/README.md),
 including the Development mode (a host `go run` against the published database).
 
 Local Compose uses `http://localhost:8092` for MSX, publishes the web service on
-`0.0.0.0:8092`, and publishes PostgreSQL on `127.0.0.1:5434`. Its `.env` contains
+`0.0.0.0:8092`, and publishes PostgreSQL on host interfaces at port `5434`. Its `.env` contains
 only the environment selector and secrets:
 
 | Variable | Required | Default | Description |
@@ -177,20 +175,9 @@ publishes.
 Deployments are serialized so that two workflow runs cannot update the server at
 the same time.
 
-Before the first full-stack deployment, complete the old-project shutdown and
-backup steps in the [manual cutover runbook](docs/container-migration-runbook.md).
-The workflow does not take over old containers or migrate their data. Every
-deployment redeploys TorrServer and Jackett too and can interrupt playback and
-search. The owner-authorized live pre-copy on November 10, 2026 used
-`rsync -aHAX --numeric-ids` to preserve UID/GID/modes; it is not a consistent
-backup while sources run. A checksum/metadata dry run reported no changes after
-copying; final offline verification and cutover remain unperformed. Sources
-remain `/var/lib/torrserver/{config,cache}` and `/opt/svtlvtv/jackett/config` until
-cutover. Keep all destination binds under `/home/deploy/svtlvtv/torrserver/` and
-`/home/deploy/svtlvtv/jackett/`; source-only cleanup is conditional on successful deployment
-and acceptance, not currently authorized. Rollback requires compatible original
-data and reconciliation of post-cutover writes; follow the runbook. No deploy-time
-guards or automated migration/cleanup are introduced.
+Every deployment redeploys TorrServer and Jackett too and can interrupt playback
+and search. The workflow neither migrates data nor makes backups. Preserve the
+existing project, database volume and bind paths described in [Operations](#operations).
 
 The workflow has a single input:
 
@@ -219,8 +206,8 @@ The workflow performs the following operations:
 7. Prunes old images after `docker-compose up -d --no-build` succeeds.
 
 The workflow does not poll container health. Compose still waits for a healthy
-database before starting the API. Verify service readiness manually using the
-[migration runbook](docs/container-migration-runbook.md#4-verify-before-retiring-old-sources).
+database before starting the API. Use [Verify a deployment](#verify-a-deployment)
+to check the running stack.
 The workflow does not run the backend tests either; the **Tests** workflow (`tests.yaml`) gates PRs and pushes to
 `svtlvtv`, so merge only green changes before deploying.
 
@@ -238,9 +225,9 @@ The target server must have:
 - an SSH user that can create `DEPLOY_DIR` and run Docker commands;
 - Tailscale connectivity from the GitHub Actions runner to `svtlv`;
 - port `8092` available for `lampa-web`, reachable through LAN or Tailscale;
-- loopback port `5434` (`lampa-db`) free;
-- TCP ports `8090` and `9117` and container names `torrserver` and `jackett` freed
-  by the manual handover, with the three preserved bind directories available;
+- TCP port `5434` (`lampa-db`) available;
+- TCP ports `8090` and `9117` and container names `torrserver` and `jackett`
+  available for their Compose services, with the persistent bind directories available;
 - a `svtlv-lampa` client in the Svtlv Keycloak realm, set up as described in
   [`backend/README.md`](backend/README.md#keycloak-prerequisites).
 
@@ -287,17 +274,23 @@ the **Run workflow** button. Once it is available:
 1. Open the repository on GitHub.
 2. Select **Actions → Build and Deploy Lampa**.
 3. Select **Run workflow**.
-4. Start the run and monitor every step until the health check passes.
+4. Start the run, monitor every step, then verify container and application health.
 
 No deployment occurs until an operator completes these steps.
 
 The workflow creates the directory configured by `DEPLOY_DIR` automatically.
-With `DEPLOY_DIR=/home/deploy/svtlvtv`, a successful run produces:
+With `DEPLOY_DIR=/home/deploy/svtlvtv`, the deployment layout includes its
+existing persistent data:
 
 ```text
 /home/deploy/svtlvtv/
 ├── .env
-└── docker-compose.yaml
+├── docker-compose.yaml
+├── torrserver/
+│   ├── config/
+│   └── cache/
+└── jackett/
+    └── config/
 ```
 
 The generated `.env` file is set to mode `600`. It records `LAMPA_ENVIRONMENT`,
@@ -315,7 +308,7 @@ On the server:
 DEPLOY_DIR=/home/deploy/svtlvtv
 cd "$DEPLOY_DIR"
 PUBLIC_URL=http://svtlv:8092
-docker-compose ps lampa-web
+docker-compose ps
 docker inspect --format '{{.State.Health.Status}}' svtlvtv_lampa_web
 docker-compose logs --tail 100 lampa-web
 curl --fail "$PUBLIC_URL/"
@@ -346,11 +339,52 @@ docker inspect --format '{{.Name}} {{.State.Status}} {{.State.Health.Status}}' t
 ```
 
 Healthy HTTP endpoints do not establish working searches, saved data or playback.
-Follow the runbook's private data and credential comparisons, then the
-[playback validation procedure](docs/parallel-playback-validation.md). Tuning
-candidates and three-viewer 1080p/single-viewer 4K capacity remain unverified until
-those live checks pass. The guide also documents the bounded, read-only Linux
-resource collector at `devops/measure-playback.sh` (Bash and Python 3.8 or newer).
+After an upgrade, compare retained settings, saved torrents, indexers and credentials
+privately and check the affected client operation. Do not put configuration exports
+or credentials in Git or shared logs. See [Operations](#operations) for safe changes.
+
+### Operations
+
+`devops/docker-compose.yaml` is authoritative for images, paths, ports and runtime
+settings. Keep `DEPLOY_DIR=/home/deploy/svtlvtv` and its project identity unchanged
+so deployments reuse the `svtlvtv_lampa_db_data` database volume.
+
+| Persistent host directory | Container path | Application UID:GID |
+| --- | --- | --- |
+| `/home/deploy/svtlvtv/torrserver/config` | `/opt/ts/config` | `0:0` |
+| `/home/deploy/svtlvtv/torrserver/cache` | `/opt/ts/torrents` | `0:0` |
+| `/home/deploy/svtlvtv/jackett/config` | `/config` | `1000:1000` |
+
+Back up the complete bind directories, PostgreSQL data and protected `.env`,
+including `LAMPA_API_DATA_KEY`. Use stopped writers or application-supported
+consistent backups, preserve ownership/permissions and verify recovery material
+before upgrades. Never regenerate credentials or recursively chown all data to
+`deploy`; the applications use the identities above. Do not delete these binds
+or the database volume during routine container replacement.
+
+Every deployment can interrupt playback/search. TorrServer's `TS_DONTKILL=1`
+ignores SIGTERM, so ordinary stop/down can reach Docker's forced-kill deadline.
+For graceful maintenance, prevent automatic restart, use the supported
+authenticated `GET /shutdown`, then confirm the process has exited. That endpoint
+is mutating and must never be a health probe.
+
+TorrServer settings changes require the **full settings object**, not a sparse
+patch, and reconnect the torrent client, dropping active torrents. Change settings
+only while idle, keep a private complete rollback export, and verify full readback
+and functionality afterward. An HTTP success alone does not prove a settings save.
+
+Monitoring and incident history belong in the administration workspace, not an
+open-ended application backlog. Create focused items for evidence-backed defects
+or deliberately scheduled improvements. For a bounded read-only resource sample on
+the Linux Docker host (Bash and Python 3.8+):
+
+```sh
+umask 077
+bash devops/measure-playback.sh --duration 60 --interval 5 > "$HOME/playback-metrics.jsonl"
+```
+
+Keep output private and outside Git. The collector does not start playback, change
+settings or establish supported capacity.
 
 ### Roll back
 
@@ -358,10 +392,10 @@ The workflow has no rollback inputs. To roll back, revert the offending commit o
 `svtlvtv` and start the workflow again; it rebuilds and deploys `latest`. The
 `lampa_db_data` volume survives redeployments.
 
-For a vendor upgrade or initial handover rollback, also follow the
-[upgrade-aware recovery procedure](docs/container-migration-runbook.md#manual-rollback-after-an-upgrade).
-Reverting an image does not restore bind data rewritten by the newer binary.
-Stop writers and use verified pre-upgrade backups when compatibility requires it.
+Reverting a vendor image does not restore bind data rewritten by the newer binary.
+Stop writers, preserve post-upgrade state, and restore a verified compatible backup
+when needed. Reconcile new writes before accepting an older recovery point; never
+run old and new writers against the same writable state.
 
 ### Troubleshooting
 
@@ -373,13 +407,13 @@ Stop writers and use verified pre-upgrade backups when compatibility requires it
   public key in the server user's `authorized_keys` file.
 - **GHCR returns `denied` or `unauthorized`** — verify that `GHCR_PAT` belongs
   to a user with package access and includes `read:packages`.
-- **Port is already allocated** — stop the conflicting service before deploying
-  on port `8092`; use the manual handover for old TorrServer/Jackett containers.
+- **Port is already allocated** — identify the conflicting service before changing
+  anything; the stack uses ports `8092`, `5434`, `8090` and `9117`.
 - **Container is unhealthy** — inspect
   `docker-compose logs --tail 100 lampa-web` and confirm that Apache can serve
   `/` inside the container.
-- **Stack startup failed** — inspect the Compose error and the runbook's
-  service-specific checks. For API failures, inspect
+- **Stack startup failed** — inspect the Compose error and the affected service's
+  health and bounded logs. For API failures, inspect
   `docker-compose logs --tail 100 lampa-api lampa-db`; the usual causes are a
   wrong `LAMPA_DB_PASSWORD` for an already initialized database volume or a
   malformed `LAMPA_API_DATA_KEY`.
