@@ -34,7 +34,7 @@ regular web server for use in a compatible browser.
 | `vender/` | Browser libraries loaded by `index.html` |
 | `svtlv/` | Fork-only ES5 Account sign-in and TorrServer membership add-ons, plus the storage-scope allowlist |
 | `Dockerfile` | Apache-based production image |
-| `devops/docker-compose.yaml` | Five-service stack: local web/API builds, PostgreSQL, and pinned TorrServer/Jackett images |
+| `devops/docker-compose.yaml` | Six-service stack: local web/API builds, PostgreSQL, and pinned TorrServer/Jackett/FlareSolverr images |
 | `devops/.env.example` | Template for the local `devops/.env` (gitignored) |
 | `.github/workflows/tests.yaml` | Backend lint, tests and race, frontend Node checks and ES5 parsing, and a Compose config check on PRs and pushes to `svtlvtv` |
 | `.github/workflows/deploy-docker.yaml` | Manual Svtlv deployment workflow |
@@ -85,9 +85,9 @@ values replace the `{domain}` and `{PREFIX}` placeholders in `msx/start.json`.
 
 ### Docker Compose
 
-`devops/docker-compose.yaml` defines five services: `lampa-web` (the Apache
+`devops/docker-compose.yaml` defines six services: `lampa-web` (the Apache
 image), `lampa-db` (PostgreSQL), `lampa-api` (the Go persistence service from
-`backend/`), `torrserver` and `jackett`. The vendor images are pinned by release
+`backend/`), `torrserver`, `jackett` and `flaresolverr`. The vendor images are pinned by release
 tag in the Compose file, which is the configuration source of truth.
 Compose builds `lampa-web:dev` and `lampa-api:dev` locally and reads its
 values from `devops/.env`, which is gitignored; `devops/.env.example` is the
@@ -335,7 +335,7 @@ environment selected by the workflow input.
 Check the vendor health states too:
 
 ```bash
-docker inspect --format '{{.Name}} {{.State.Status}} {{.State.Health.Status}}' torrserver jackett
+docker inspect --format '{{.Name}} {{.State.Status}} {{.State.Health.Status}}' torrserver jackett flaresolverr
 ```
 
 Healthy HTTP endpoints do not establish working searches, saved data or playback.
@@ -367,6 +367,12 @@ ignores SIGTERM, so ordinary stop/down can reach Docker's forced-kill deadline.
 For graceful maintenance, prevent automatic restart, use the supported
 authenticated `GET /shutdown`, then confirm the process has exited. That endpoint
 is mutating and must never be a health probe.
+
+FlareSolverr solves Cloudflare challenges for Jackett indexers that need it. It
+publishes no port and keeps no data. To use it, open the Jackett dashboard, set
+**FlareSolverr API URL** to `http://flaresolverr:8191`, keep the default
+**FlareSolverr Max Timeout** and select **Apply server settings**. Then test the
+indexers that reported Cloudflare errors.
 
 TorrServer settings changes require the **full settings object**, not a sparse
 patch, and reconnect the torrent client, dropping active torrents. Change settings

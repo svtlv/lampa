@@ -13,6 +13,7 @@ const workflow = fs.readFileSync(path.join(root, '.github/workflows/deploy-docke
 const example = fs.readFileSync(path.join(root, 'devops/.env.example'), 'utf8');
 const pin = 'ghcr.io/yourok/torrserver:MatriX.150';
 const jackettPin = 'lscr.io/linuxserver/jackett:v0.24.3030-ls30';
+const flaresolverrPin = 'ghcr.io/flaresolverr/flaresolverr:v3.5.2';
 // Ignore real account/deploy inputs and implicit Compose overrides in the test environment.
 const env = Object.fromEntries(Object.entries(process.env).filter(([key]) =>
   !/^(LAMPA_|COMPOSE_|DOCKER_DEFAULT_PLATFORM$)/.test(key)));
@@ -123,7 +124,7 @@ test('Jackett preserves its pinned image, s6 identity, no-update environment and
     {type: 'bind', source: '/home/deploy/svtlvtv/jackett/config', target: '/config', read_only: false}
   ]);
   assert.deepEqual(Object.keys(model.services).sort(),
-    ['jackett', 'lampa-api', 'lampa-db', 'lampa-web', 'torrserver']);
+    ['flaresolverr', 'jackett', 'lampa-api', 'lampa-db', 'lampa-web', 'torrserver']);
 });
 
 test('Jackett keeps its public TCP endpoint and Torznab DNS alias on both networks', t => {
@@ -152,6 +153,22 @@ test('Jackett readiness uses a bounded anonymous health request without searchin
   assert.equal(health.retries, 5);
 });
 
+test('FlareSolverr is pinned, private to the default network and reachable by its alias', t => {
+  const server = config(fixture(t)).services.flaresolverr;
+  assert.equal(server.image, flaresolverrPin);
+  assert.equal(server.container_name, 'flaresolverr');
+  assert.equal(server.restart, 'unless-stopped');
+  assert.deepEqual(server.environment, {
+    LOG_LEVEL: 'info', LOG_HTML: 'false', CAPTCHA_SOLVER: 'none', TZ: 'Asia/Jerusalem'
+  });
+  // The vendor warns against exposing the proxy; Jackett uses http://flaresolverr:8191.
+  assert.ok(server.ports == null, 'ports');
+  assert.deepEqual(server.networks, {default: {aliases: ['flaresolverr']}});
+  assert.deepEqual(server.tmpfs, ['/tmp:size=256M,mode=1777']);
+  assert.deepEqual(server.healthcheck.test, ['CMD', 'curl', '-fsS', '--max-time', '3',
+    '--output', '/dev/null', 'http://127.0.0.1:8191/health']);
+});
+
 test('Compose rejects an invalid Jackett port mapping', t => {
   const result = render(fixture(t, compose.replace('9117:9117/tcp', 'invalid:9117/tcp')));
   assert.ifError(result.error);
@@ -166,6 +183,7 @@ for (const environment of ['Test', 'Production', '']) {
     assert.equal(model.services['lampa-api'].environment.LAMPA_ENVIRONMENT, environment || 'Test');
     assert.equal(model.services.torrserver.image, pin);
     assert.equal(model.services.jackett.image, jackettPin);
+    assert.equal(model.services.flaresolverr.image, flaresolverrPin);
   });
 }
 
@@ -204,6 +222,7 @@ test('the actual release transformation keeps vendor services intact and rewrite
   const after = config(dir);
   assert.deepEqual(after.services.torrserver, before.services.torrserver);
   assert.deepEqual(after.services.jackett, before.services.jackett);
+  assert.deepEqual(after.services.flaresolverr, before.services.flaresolverr);
   assert.deepEqual(after.networks, before.networks);
   assert.deepEqual(after.volumes, before.volumes);
   for (const service of ['web', 'api']) {

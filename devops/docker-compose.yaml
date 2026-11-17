@@ -155,6 +155,32 @@ services:
         aliases:
           - jackett
 
+  flaresolverr:
+    # Cloudflare challenge proxy for Jackett; set its API URL in Jackett to http://flaresolverr:8191
+    image: ghcr.io/flaresolverr/flaresolverr:v3.5.2
+    container_name: flaresolverr
+    restart: unless-stopped
+    environment:
+      LOG_LEVEL: info
+      LOG_HTML: "false"
+      CAPTCHA_SOLVER: none
+      TZ: Asia/Jerusalem
+    # nothing is published: the vendor warns against exposing it, and Jackett reaches it
+    # on the default network. tmpfs keeps Chromium's temporary files off the disk.
+    tmpfs:
+      - /tmp:size=256M,mode=1777
+    healthcheck:
+      # status-only endpoint; it starts no browser and solves no challenge
+      test: ["CMD", "curl", "-fsS", "--max-time", "3", "--output", "/dev/null", "http://127.0.0.1:8191/health"]
+      interval: 30s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
+    networks:
+      default:
+        aliases:
+          - flaresolverr
+
 networks:
   monitoring_external:
     external: true
