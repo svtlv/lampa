@@ -225,7 +225,7 @@ export default {
     settings_server_client: 'Embedded client',
     settings_server_client_descr: 'Use the built-in TorrServer JS client, otherwise the system one starts.',
     settings_server_base: 'Save to database',
-    settings_server_base_descr: 'The torrent will be added to the TorrServer database',
+    settings_server_base_descr: 'The torrent will be added to the database',
     settings_server_preload: 'Use prefetch buffer',
     settings_server_preload_descr: 'Wait for TorrServer\'s preload buffer to fill before playing',
     settings_server_auth: 'Authorization',
@@ -1113,6 +1113,7 @@ export default {
 
     settings_interface_glass_opacity: 'Glass transparency',
     torrent_error_check_no_auth: 'The server responded to the request, but the authorization failed',
+    torrserver_fallback: 'TorrServer: switched to link {link}',
     settings_interface_card_cover: 'Show cover',
 
     title_upcoming_episodes: 'Upcoming episode releases',

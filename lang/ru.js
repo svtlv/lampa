@@ -265,7 +265,7 @@ export default {
     settings_server_client: 'Встроенный клиент',
     settings_server_client_descr: 'Использовать встроенный JS-клиент TorrServer, иначе запускается системный.',
     settings_server_base: 'Сохранять в базу',
-    settings_server_base_descr: 'Торрент будет добавлен в базу TorrServer',
+    settings_server_base_descr: 'Торрент будет добавлен в базу',
     settings_server_preload: 'Использовать буфер пред.загрузки',
     settings_server_preload_descr: 'Дожидаться заполнения буфера предварительной загрузки TorrServer перед проигрыванием',
     settings_server_auth: 'Авторизация',
@@ -344,6 +344,7 @@ export default {
     torrent_error_complite: 'Завершить',
     torrent_error_connect: 'Ошибка подключения',
     torrent_error_check_no_auth: 'Сервер ответил на запрос, но не удалось пройти авторизацию',
+    torrserver_fallback: 'TorrServer: переключено на ссылку {link}',
 
     torrent_install_need: 'Необходим TorrServer',
     torrent_install_text: 'TorrServer – приложение, которое позволяет просматривать контент из торрент-файлов в онлайн режиме.<br><br>Более детальную информацию по установке вы найдете в Telegram-группах, указанных ниже.',
