@@ -127,21 +127,21 @@ enabled     = true
 description = Absolute maximum capability with no limit on token spending. The deepest reasoning; can overthink simple or structured tasks.
 source      = https://platform.claude.com/docs/en/build-with-claude/effort
 
-[model.gpt-6-astra]
+[model.gpt-6.2-astra]
 enabled     = true
 cli         = codex
-name        = gpt-6-astra
+name        = gpt-6.2-astra
 efforts     = low, medium, high, xhigh, max, ultra
-description = Frontier intelligence for the most demanding end-to-end reasoning, coding, computer use, research and documents, where quality and judgment dominate. Input USD 10 / output USD 50 per million tokens.
-source      = https://developers.openai.com/api/docs/models/gpt-6-astra
+description = Frontier intelligence for the most demanding end-to-end reasoning, coding, computer use, research and documents, where quality and judgment dominate. Input USD 8 / output USD 40 per million tokens.
+source      = https://developers.openai.com/api/docs/models/gpt-6.2-astra
 
-[model.gpt-6.1-sol]
+[model.gpt-6.2-sol]
 enabled     = true
 cli         = codex
-name        = gpt-6.1-sol
+name        = gpt-6.2-sol
 efforts     = low, medium, high, xhigh, max, ultra
-description = Workhorse for complex coding and agent workflows; better factual reliability than 5.6 Sol. The capable everyday choice. Input USD 2 / output USD 10 per million tokens.
-source      = https://developers.openai.com/api/docs/models/gpt-6.1-sol
+description = Workhorse for complex coding and agent workflows. Uses fewer output tokens on demanding tasks. The capable everyday choice. Input USD 2 / output USD 10 per million tokens.
+source      = https://developers.openai.com/api/docs/models/gpt-6.2-sol
 
 [model.gpt-6.1-terra]
 enabled     = true
