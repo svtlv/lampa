@@ -84,7 +84,12 @@ function page(shared = server()) {
     Player: {play: element => { played.push(element); shared.play(context); }, callback: call => playerBacks.push(call), playlist() {}},
     Select: {show() {}}, Noty: {show() {}}, EpisodeParser: {parse: () => ({})}
   });
-  vm.runInContext(apiSource + '\n' + source, context);
+  // The extracted playback code uses the real upstream ETA helpers.
+  const etaStart = bundle.indexOf('  var ETA_MIN_BYTES = ');
+  assert.ok(etaStart >= 0, 'ETA constants');
+  const etaConstants = bundle.slice(etaStart, bundle.indexOf('\n  /**', etaStart));
+  const preloadHelpers = [etaConstants, fn('createEta'), fn('preloadDetail')].join('\n');
+  vm.runInContext(apiSource + '\n' + preloadHelpers + '\n' + source, context);
   const actualShow = context.show$3, actualList = context.list$2;
   context.show$3 = files => shown.push(files);
   context.list$2 = (...args) => lists.push(args);
@@ -247,7 +252,11 @@ test('actual file list retains local Timeline and playback callbacks', () => {
 function playerInfo(p) {
   const elems = Object.fromEntries(['stat', 'speed', 'pieces', 'size', 'error', 'vname', 'name', 'title'].map(k => [k, p.node()]));
   Object.assign(p.context, {elems, html$h: p.node(), listener$a: {send() {}}, network$7: new p.context.Request()});
-  const variables = bundle.slice(bundle.indexOf('  var error$1, stat_timer;'), bundle.indexOf('  function init$W()'));
+  const start = bundle.indexOf('  var error$1, stat_timer;');
+  assert.ok(start >= 0, 'player statistics declarations');
+  const end = bundle.indexOf('\n  function ', start);
+  assert.ok(end > start, 'end of player statistics declarations');
+  const variables = bundle.slice(start, end);
   // Keep any nearby lifecycle state declarations used by these actual functions.
   vm.runInContext(variables + fn('pieces') + fn('stat$3') + fn('destroy$e'), p.context);
   return {start: hash => p.context.stat$3({url: 'http://server/stream/movie?link=' + hash + '&play', torrent_hash: hash}), stop: () => p.context.destroy$e()};
