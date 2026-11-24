@@ -358,7 +358,7 @@ for (const change of ['logout', 'account', 'URL', 'guest storage']) test('scope 
   let list;
   detail.activity = {destroy() {}};
   Object.assign(p.context, {
-    activites: stack, listener$3: {send() {}}, slides: {children: []}, maxsave: 5,
+    activities: stack, listener$3: {send() {}}, slides: {children: []}, maxsave: 5,
     Lampa: p.Lampa, pushState() {},
     create$4(object) {
       assert.equal(object, retained);
