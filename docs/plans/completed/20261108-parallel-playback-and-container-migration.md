@@ -504,7 +504,7 @@ No production access, device playback, deployment or socket changes were perform
 **Files:**
 - Modify: `svtlv/torrserver-ownership.js`, `tests/torrserver-ownership.test.cjs`
 - Modify: `tests/torrserver-one-link.test.cjs` if affected
-- Modify: `backend/README.md`, `docs/design/settings-sync-backend-design.md`
+- Modify: `backend/README.md`, `docs/designs/settings-sync-backend-design.md`
 - Modify: `tests/ownership-docs.test.cjs` only for changed documented contracts
 
 - [x] Reuse existing endpoint normalization/digest logic to obtain both configured
@@ -779,7 +779,7 @@ reserved for that iteration.
 
 **Files:**
 - Modify: `backend/README.md`, `AGENTS.md`, `CLAUDE.md` where guidance changes
-- Modify: `docs/design/settings-sync-backend-design.md`
+- Modify: `docs/designs/settings-sync-backend-design.md`
 - Modify: the inventory, runbook and validation documents created above
 - Delete: resolved files from `docs/backlog/`
 - Move: this plan to `docs/plans/completed/`

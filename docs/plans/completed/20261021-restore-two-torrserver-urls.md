@@ -161,7 +161,7 @@ the original settings. Login and password retain their existing encryption polic
 - Modify: `svtlv/storage-scope.json`
 - Modify: `backend/pkg/storage/crypto_test.go`
 - Modify: `tests/torrserver-one-link.test.cjs`
-- Modify: `docs/design/settings-sync-backend-design.md`
+- Modify: `docs/designs/settings-sync-backend-design.md`
 - Modify: `tests/ownership-docs.test.cjs`
 
 - [x] Restore both URL inputs and the selector from the original template and Params registration, preserving names, labels, markup, ordering, events and default `one` exactly.
@@ -240,7 +240,7 @@ in Post-Completion; no production code changes were needed for acceptance.
 
 **Files:**
 - Modify: `backend/README.md`
-- Modify: `docs/design/settings-sync-backend-design.md`
+- Modify: `docs/designs/settings-sync-backend-design.md`
 - Modify: `CLAUDE.md`
 - Modify: `tests/ownership-docs.test.cjs` (if additional assertions need updating)
 - Move: this plan to `docs/plans/completed/` after completion

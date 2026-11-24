@@ -6,7 +6,7 @@ const path = require('node:path');
 const {test} = require('node:test');
 const root = path.join(__dirname, '..');
 const maintained = ['README.md', 'backend/README.md', 'AGENTS.md', 'CLAUDE.md',
-  'docs/design/settings-sync-backend-design.md',
+  'docs/designs/settings-sync-backend-design.md',
   'docs/plans/completed/20261108-parallel-playback-and-container-migration.md'];
 
 test('completed migration documents, validation guide and retired backlog are absent', () => {
