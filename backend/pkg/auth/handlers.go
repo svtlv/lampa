@@ -7,7 +7,6 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
-	"strings"
 	"time"
 
 	"golang.org/x/oauth2"
@@ -425,7 +424,7 @@ func signedIn(p Profile) sessionJSON {
 // (browsers send the url percent-encoded) and a fragment are refused; the login outcome fragment
 // is appended later.
 func returnPath(raw string) string {
-	if raw == "" || len(raw) > maxReturnPathSize || raw[0] != '/' || strings.HasPrefix(raw, "//") {
+	if raw == "" || len(raw) > maxReturnPathSize || raw[0] != '/' || (len(raw) > 1 && (raw[1] == '/' || raw[1] == '\\')) {
 		return "/"
 	}
 	for _, c := range raw {

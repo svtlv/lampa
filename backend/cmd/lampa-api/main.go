@@ -66,7 +66,7 @@ func run(ctx context.Context, args []string, settings fs.FS, lookup func(string)
 		return fmt.Errorf("load config: %w", err)
 	}
 	logger := log.New(out, "", log.LstdFlags)
-	logger.Printf("[INFO] config: %v", cfg)
+	logger.Printf("[INFO] config: %s", cfg.String())
 	return start(ctx, cfg, logger, listenTCP)
 }
 

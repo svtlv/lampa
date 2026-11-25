@@ -1089,7 +1089,7 @@ test('synchronous API exceptions fail closed and unexpected mutation status neve
 });
 
 test('loader orders ownership then sync, tolerates missing/throwing add-ons, and starts once', () => {
-  const scripts = [...html.matchAll(/<script(?:\s[^>]*)?>([\s\S]*?)<\/script>/g)].map(match => match[1]).filter(Boolean);
+  const scripts = [...html.matchAll(/<script(?:\s[^>]*)?>([\s\S]*?)<\/script[^>]*>/gi)].map(match => match[1]).filter(Boolean);
   for (const missingOwnership of [false, true]) for (const missingSync of [false, true])
     for (const remote of [false, true]) for (const hook of ['absent', 'throw', 'delayed']) {
     const appended = [];

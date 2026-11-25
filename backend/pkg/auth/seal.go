@@ -110,7 +110,8 @@ func (s *CookieSealer) Seal(purpose Purpose, payload any, expiresAt time.Time) (
 	if _, err := rand.Read(nonce); err != nil {
 		return "", fmt.Errorf("generate nonce: %w", err)
 	}
-	sealed := make([]byte, 0, headerSize+len(nonce)+len(plaintext)+aead.Overhead())
+	// aead.Seal grows the buffer for the ciphertext, so no size is computed from the payload length
+	sealed := make([]byte, 0, headerSize+len(nonce))
 	sealed = append(sealed, header...)
 	sealed = append(sealed, nonce...)
 	sealed = aead.Seal(sealed, nonce, plaintext, header)
