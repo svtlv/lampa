@@ -267,7 +267,7 @@ export default {
     settings_server_client:  'Wbudowany klient',
     settings_server_client_descr:  'Używaj wbudowanego klienta JS TorrServer, w przeciwnym razie uruchamiany będzie systemowy.',
     settings_server_base:  'Zapisuj do bazy',
-    settings_server_base_descr:  'Torrent zostanie dodany do bazy TorrServer',
+    settings_server_base_descr:  'Torrent zostanie dodany do bazy',
     settings_server_preload:  'Używaj bufora wstępnego ładowania',
     settings_server_preload_descr:  'Poczekaj na zapełnienie bufora TorrServer przed rozpoczęciem odtwarzania',
     torrent_preload_seeds: 'Seedy',

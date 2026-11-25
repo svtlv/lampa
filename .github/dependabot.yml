@@ -1,0 +1,40 @@
+version: 2
+updates:
+  # lampa-api Go module; vendor/ is detected and refreshed automatically
+  - package-ecosystem: "gomod"
+    directory: "/backend"
+    schedule:
+      interval: "weekly"
+    open-pull-requests-limit: 5
+    groups:
+      go-minor-patch:
+        update-types: ["minor", "patch"]
+
+  - package-ecosystem: "github-actions"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+    open-pull-requests-limit: 5
+    groups:
+      actions:
+        patterns: ["*"]
+
+  # base images of lampa-web (root) and lampa-api (backend)
+  - package-ecosystem: "docker"
+    directories:
+      - "/"
+      - "/backend"
+    schedule:
+      interval: "weekly"
+    open-pull-requests-limit: 5
+
+  # pinned vendor services; bumps also need the pins in tests/container-compose.test.cjs
+  - package-ecosystem: "docker-compose"
+    directory: "/devops"
+    schedule:
+      interval: "weekly"
+    open-pull-requests-limit: 5
+    ignore:
+      # a major PostgreSQL upgrade needs a data migration
+      - dependency-name: "postgres"
+        update-types: ["version-update:semver-major"]
