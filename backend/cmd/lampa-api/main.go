@@ -66,7 +66,9 @@ func run(ctx context.Context, args []string, settings fs.FS, lookup func(string)
 		return fmt.Errorf("load config: %w", err)
 	}
 	logger := log.New(out, "", log.LstdFlags)
-	logger.Printf("[INFO] config: %s", cfg.String())
+	// only non-secret fields are read here, so no secret can reach the log
+	logger.Printf("[INFO] config: {Environment:%s Listen:%s HealthListen:%s MaxBodyBytes:%d Issuer:%s ClientID:%s RequireHTTPSMetadata:%t}",
+		cfg.Environment, cfg.Listen, cfg.HealthListen, cfg.MaxBodyBytes, cfg.Auth.Issuer, cfg.Auth.ClientID, cfg.Auth.RequireHTTPSMetadata)
 	return start(ctx, cfg, logger, listenTCP)
 }
 
