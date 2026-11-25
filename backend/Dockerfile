@@ -18,7 +18,7 @@ RUN \
     go build -mod=vendor -o /build/lampa-api -ldflags "-X main.revision=${version} -s -w" ./cmd/lampa-api
 
 # Stage 2: Runtime image, init.sh starts as root and runs CMD as the non-root app user
-FROM ghcr.io/umputun/baseimage/app:v1.21.1
+FROM ghcr.io/umputun/baseimage/app:v1.21.2
 
 ARG GITHUB_SHA
 
