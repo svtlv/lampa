@@ -1,5 +1,5 @@
 # Stage 1: Build lampa-api binary from vendored sources
-FROM ghcr.io/umputun/baseimage/buildgo:v1.21.1 AS build
+FROM ghcr.io/umputun/baseimage/buildgo:v1.21.2 AS build
 
 ARG GIT_BRANCH
 ARG GITHUB_SHA
